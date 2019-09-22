@@ -28,3 +28,6 @@ Port                   Type              Board Name            FQBN
 
 arduino-cli compile --fqbn arduino:avr:uno weathermon.ino
 /Applications/Arduino.app/Contents/Java/hardware/tools/avr/bin/avrdude -C/Applications/Arduino.app/Contents/Java/hardware/tools/avr/etc/avrdude.conf -v -patmega32u4 -cavr109 -P/dev/cu.usbmodem401101 -b57600 -D -Uflash:w:weathermon.ino.arduino.avr.uno.hex:i
+
+upload:
+/Applications/Arduino.app/Contents/Java/hardware/tools/avr/bin/avrdude -C/Applications/Arduino.app/Contents/Java/hardware/tools/avr/etc/avrdude.conf -v -patmega32u4 -cavr109 -P/dev/cu.usbmodem401101 -b57600 -D -Uflash:w:/var/folders/zw/kh4p3sk12dz1fd71yd27xcy40000gn/T/arduino_build_987236/avr_threads.ino.hex:i
