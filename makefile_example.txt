@@ -31,3 +31,26 @@ arduino-cli compile --fqbn arduino:avr:uno weathermon.ino
 
 upload:
 /Applications/Arduino.app/Contents/Java/hardware/tools/avr/bin/avrdude -C/Applications/Arduino.app/Contents/Java/hardware/tools/avr/etc/avrdude.conf -v -patmega32u4 -cavr109 -P/dev/cu.usbmodem401101 -b57600 -D -Uflash:w:/var/folders/zw/kh4p3sk12dz1fd71yd27xcy40000gn/T/arduino_build_987236/avr_threads.ino.hex:i
+
+reset using usb:
+stty -f "${ARDUINO_UPLOAD_PORT}" 1200
+stty -f "/dev/cu.usbmodem401101" 1200
+
+# bash script for upload:
+# find the Arduino port
+ARDUINO_UPLOAD_PORT="$(find /dev/cu.usbmodem* | head -n 1)"
+
+# reset the Arduino
+stty -f "${ARDUINO_UPLOAD_PORT}" 1200
+
+# wait for it...
+while :; do
+  sleep 0.5
+  [ -c "${ARDUINO_UPLOAD_PORT}" ] && break
+done
+
+# ...upload!
+avrdude "${OPTIONS[@]}"
+
+
+
