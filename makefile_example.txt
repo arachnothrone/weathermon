@@ -20,3 +20,11 @@ clean:
 	rm -rf build/*
 	rm -f *.hex *.elf
     
+
+
+qweqwe:~ zzz$ arduino-cli board list
+Port                   Type              Board Name            FQBN
+/dev/cu.usbmodem401101 Serial Port (USB) Arduino/Genuino Micro arduino:avr:micro
+
+arduino-cli compile --fqbn arduino:avr:uno weathermon.ino
+/Applications/Arduino.app/Contents/Java/hardware/tools/avr/bin/avrdude -C/Applications/Arduino.app/Contents/Java/hardware/tools/avr/etc/avrdude.conf -v -patmega32u4 -cavr109 -P/dev/cu.usbmodem401101 -b57600 -D -Uflash:w:weathermon.ino.arduino.avr.uno.hex:i

@@ -264,7 +264,7 @@ void setup(){
   
   lcd.begin(16, 2);
   lcd.setCursor(0, 0);
-  lcd.write("Sec: ");
+  lcd.write("SSS: ");
   lcd.setCursor(0, 1);
   lcd.write("D:");
   //Arrow animatedArrow = {" ", true, 12, 15, 12, 12};
