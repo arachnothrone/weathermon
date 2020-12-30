@@ -37,15 +37,6 @@ Thread sensorsRead = Thread();  // Read AM2320, ambient and BMP sensors
 Thread sensorsDisp = Thread();  // Display sensors data and log to serial/file
 
 typedef struct {
-  char symbol;// = ' ';
-  bool dir;// = false;
-  int x_begin;// = 9;
-  int x_end;// = 15;
-  int x_old;// = 12;
-  int x_coord;// = 12; 
-} Arrow;
-
-typedef struct {
   int year;
   int mnth;
   int day;
