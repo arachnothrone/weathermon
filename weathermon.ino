@@ -1,190 +1,240 @@
-#include <LiquidCrystal.h>
+/*
+I2C addresses:
+
+Found address: 60 (0x3C)     - OLED 4-line display
+Found address: 60 (0x3C)     - OLED 8-lines
+Found address: 87 (0x57)     - RTC 1 (eeprom??? AT24C32)
+Found address: 104 (0x68)    - RTC 2 (CLOCK_ADDRESS)
+Found address: 119 (0x77)    - pressure sensor
+not found AM2320, 92 >>> 0x5C ?
+
+*/
+
 #include <Thread.h>
-//#include <stdlib.h>   // for itoa()
 #include <SPI.h>      // for sd card
 #include <SD.h>
-//#include <Wire.h>     // for AM2320
+#include <Wire.h>     // for AM2320
 //#include <AM2320.h>   // for AM2320
 #include "Adafruit_Sensor.h"  // for AM2320, connect to I2C
 #include "Adafruit_AM2320.h"
 #include "Adafruit_BMP085.h"  // Pressure sensor, I2C (with pullup resistors onboard)
 #include "DS3231.h"   // RTC
-
+#include <U8x8lib.h>
 
 #define PAMMHG (0.00750062)
 
-LiquidCrystal lcd(7, 8, 9, 10, 11, 12);
 //AM2320 temp_humid;
 Adafruit_AM2320 temp_humid = Adafruit_AM2320();
 Adafruit_BMP085 bmp;
-RTClib RTC;
+RTClib RTC;   // DS3231 Clock;  --> Clock.setClockMode(false);	// set to 24h
 
-Thread taskOne = Thread();  // thread for task one, print time in seconds since controller start
-Thread taskTwo = Thread();  // thread for task two, animation for ">" moving in the first LCD row between
-                            // positions 9 and 15
-Thread taskThr = Thread();  // thread for task three, read and print light sensor data at the end of the second row
-Thread taskFour = Thread(); // read temp & humidity sensor, print to serial
+//U8X8_SSD1306_128X32_UNIVISION_SW_I2C oled(/* clock=*/ 5, /* data=*/ 4, /* reset=*/ U8X8_PIN_NONE);   // OLEDs without Reset of the Display
+U8X8_SSD1306_128X32_UNIVISION_HW_I2C oled(/* reset=*/ U8X8_PIN_NONE, /* clock=*/ SCL, /* data=*/ SDA);   // pin remapping with ESP8266 HW I2C
+
+Thread clockRead = Thread();  // Read RTC data, calling every second
+Thread clockDisp = Thread();  // Display clock line on the screen, being called every 1/2 sec
+Thread sensorsRead = Thread();  // Read AM2320, ambient and BMP sensors
+Thread sensorsDisp = Thread();  // Display sensors data and log to serial/file
 
 typedef struct {
-  char symbol;// = ' ';
-  bool dir;// = false;
-  int x_begin;// = 9;
-  int x_end;// = 15;
-  int x_old;// = 12;
-  int x_coord;// = 12; 
-} Arrow;
+  int year;
+  int mnth;
+  int day;
+  int hrs;
+  int min;
+  int sec;
+  bool flashSeparators;
+  bool winterTime;
+  bool summerTime;
+} TimeDateStorage;
 
-//Arrow* animatedArrow = (Arrow*)malloc(sizeof(Arrow));
-Arrow animatedArrow[] = {' ', false, 9, 15, 9, 9};
+typedef struct
+{
+  float temperature;    // C
+  float humidity;       // %
+  float pressure;       // mmHg
+  int   ambientLight;   // 0 - 1010 (dark)
+  char  am2320error[20];  // "AM_ERR: CRC Failed" or "AM_ERR: OFFLINE"
+} SensDataStorage;
+
+// TODO: add semaphore protection for currentTimeDate & sensorsData
+static TimeDateStorage currentTimeDate = {0, 0, 0, 0, 0, 0, true, false, false};
+static SensDataStorage sensorsData = {0, 0, 0, 0};
 
 File logfile;         //lghtsnsr.log
 File logTempHumid;    // temphd.log
 
-void taskOneFunc(){
-  // Printing seconds since restart on the first row
-  lcd.setCursor(5, 0);
-  lcd.write("    ");
-  lcd.setCursor(5, 0);
-  lcd.print(millis() / 1000);
+void clockReadTaskFunction()
+{
+  clockReadFunc(&currentTimeDate);
 }
 
-void taskTwoFunc(){
-  // Running arrow ">" or "<"
-  //Arrow animatedArrow;
-  arrowStep(animatedArrow);
-  delay(120);
-//  lcd.setCursor(15, 1);
-//  lcd.write(' ');
-//  lcd.setCursor(14, 1);
-//  lcd.write('@');
+void clockDisplayTaskFunction()
+{
+  clockDisplayFunc(&currentTimeDate);
 }
 
-void taskThreeFunc(){
-  // Read and display light sensor data at the end of the second line
-  int lightSensorVal = analogRead(A0);
-  int sc;
-  //char buf[4];                                // for variant with itoa() of lightSensorVal
-  sc = lightSensorVal < 1000 ? 13 : 12;       // align 3-4 digit value
-  sc = lightSensorVal < 100 ? sc + 1 : sc;    // consider 2 digit value as well
-  lcd.setCursor(12, 1);
-  lcd.print("    ");                          // erase previous value
-  lcd.setCursor(sc, 1);
-  lcd.print(lightSensorVal);                  // print new value (0-4 digits)
-  // write to log
-  logfile = SD.open("lghtsnsr.log", FILE_WRITE);
-  if (logfile){
-    //logfile.printf("Light sensor value: %s", itoa(lightSensorVal, buf, 10));  // itoa() variant
-    logfile.print(String("** Light sensor value: ") + lightSensorVal + " time[" + String(millis() / 1000, DEC) + "] s" + '\n');   // using String wrapping, which has dynamic concatenation
-    logfile.close();
-    lcd.setCursor(sc - 1, 1);
-    lcd.print("+");             // indicate successful writing to the log
-  } else {
-    lcd.setCursor(sc - 1, 1);
-    lcd.print("?");  
-  }
+void sensorReadTaskFunction()
+{
+  sensorReadFunc(&sensorsData);
 }
 
-void taskFourFunc(){
-  // Read and display & send temperature & humidity from AM2320
-  // and athmospheric pressure taken from BMP180 GY68 Digital Barometric Pressure Sensor Board Module compatible with BMP085
-//  switch(temp_humid.Read()){
-//    case 2:
-//      Serial.println("Temperature sensor: CRC failed");
-//      break;
-//    case 1:
-//      Serial.println("Temperature sensor: Offline");
-//      break;
-//    case 0:
-//  Serial.print("Temperature: ");
-//  Serial.print(temp_humid.readTemperature());
-//  Serial.print(" C, humidity: ");
-//  Serial.print(temp_humid.readHumidity());
-//  Serial.println(" %");
-  
+void sensorsLogTaskFunction()
+{
+  sensorsDataLogFunc(&sensorsData, &currentTimeDate);
+}
+
+
+void clockReadFunc(TimeDateStorage* tds)
+{
+  /* Read current date and time & display */
   DateTime now = RTC.now();
-  int year = now.year();
-  int mnth = now.month();
-  int day = now.day();
-  int hour = now.hour();
-  int minu = now.minute();
-  int seco = now.second();
-  //String s = seco < 10? ":0" : ":"
-  String logString = String("Time: ") 
-    + (year < 10 ? "0" : ""  ) + year
-    + (mnth < 10 ? "/0" : "/") + mnth
-    + (day  < 10 ? "/0" : "/") + day
-    + (hour < 10 ? " 0" : " ") + hour
-    + (minu < 10 ? ":0" : ":") + minu 
-    + (seco < 10 ? ":0" : ":") + seco 
-    + " Temperature: " + temp_humid.readTemperature() 
-    + " C, Humidity: " + temp_humid.readHumidity() 
-    + " %, Pressure: " + bmp.readPressure() * PAMMHG + " mmHg\n";
-  
-  logTempHumid = SD.open("temphd.log", FILE_WRITE);
-  if(logTempHumid){
-    //logTempHumid.print(String("AM2320: Temperature: ") + temp_humid.readTemperature() + " C, Humidity: " + temp_humid.readHumidity() + " %" + " time[" + String(millis() / 1000, DEC) + "] s" + '\n');
-    //logTempHumid.print(String("BMP180: Temperature: ") + bmp.readTemperature() + " C, Pressure: " + bmp.readPressure() * 0.007501 + " mmhHg, Alt: " + bmp.readAltitude() + "m, Pressure (sea level): " + bmp.readSealevelPressure() + '\n');
-    /*
-    logTempHumid.print(String("Temperature: ") + temp_humid.readTemperature() + " C, Humidity: " + temp_humid.readHumidity() + " %, Pressure: " + bmp.readPressure() * PAMMHG + " mmHg\n");  
-    */
-    logTempHumid.print(logString);
-    logTempHumid.close();
-  }
-  //Serial.print(String("AM2320: Temperature: ") + temp_humid.readTemperature() + " C, Humidity: " + temp_humid.readHumidity() + " %" + " time[" + String(millis() / 1000, DEC) + "] s" + '\n');
-  //Serial.print(String("BMP180: Temperature: ") + bmp.readTemperature() + " C, Pressure: " + bmp.readPressure() * 0.007501 + " mmhHg, Alt: " + bmp.readAltitude() + "m, Pressure (sea level): " + bmp.readSealevelPressure() + '\n');
-  Serial.print(logString);
-  /*
-  Serial.print(String("Time: ") 
-    + (year < 10 ? "0" : ""  ) + year
-    + (mnth < 10 ? "/0" : "/") + mnth
-    + (day  < 10 ? "/0" : "/") + day
-    + (hour < 10 ? " 0" : " ") + hour
-    + (minu < 10 ? ":0" : ":") + minu 
-    + (seco < 10 ? ":0" : ":") + seco 
-    + " Temperature: " + temp_humid.readTemperature() 
-    + " C, Humidity: " + temp_humid.readHumidity() 
-    + " %, Pressure: " + bmp.readPressure() * PAMMHG + " mmHg\n"); 
-    */
-//      break;  
+  tds->year = now.year();
+  tds->mnth = now.month();
+  tds->day = now.day();
+  tds->hrs = now.hour();
+  tds->min = now.minute();
+  tds->sec = now.second();
+
+  // ------------------------------------ Start of DO NOT REMOVE ------------------------------------
+  /* TODO: daylight saving time adjustment:
+   * use DS3231 eeprom to store winterTime/summerTime
+   */
+  /* Check for and set the daylight saving time */
+  // if ((tds->sec > 35 || tds->sec <=10) && (tds->winterTime == false))
+  // {
+  //   Serial.print("W::Winter="); Serial.print(tds->winterTime);
+  //   Serial.print(" W::Summer="); Serial.println(tds->summerTime);
     
-//  }
+  //   // set winter time, +1 hour
+  //   Serial.print("Seting winter time\n");
+  //   adjustDaylightSavingTime(tds, 1);
+
+  //   tds->winterTime = true;
+  //   tds->summerTime = false;
+  // }
+
+  // if ((tds->sec <= 35 && tds->sec > 10) && (tds->summerTime == false))
+  // {
+  //   Serial.print("S::Winter="); Serial.print(tds->winterTime);
+  //   Serial.print(" S::Summer="); Serial.println(tds->summerTime);
+    
+  //   // set summer time, -1 hour
+  //   Serial.print("Setting summer time\n");
+  //   adjustDaylightSavingTime(tds, -1);
+
+  //   tds->winterTime = false;
+  //   tds->summerTime = true;
+  // }
+  // ------------------------------------- End of DO NOT REMOVE -------------------------------------
 }
 
-void arrowStep(Arrow *self){
-  // function performs one single movement of the character ">" or "<"
-  // depending on its current movement direction
-  
-  //char symbol;
-  if(self->dir)
-    self->symbol = '>';
-  else
-    self->symbol = '<';
-  
-  // update LCD 
-  lcd.setCursor(self->x_old, 0);
-  lcd.write(" ");
-  lcd.setCursor(self->x_coord, 0);
-  lcd.write(self->symbol);
+// ------------------------------------ Start of DO NOT REMOVE ------------------------------------
+/* TODO: daylight saving time adjustment */
+// void adjustDaylightSavingTime(TimeDateStorage* pTimeDateStorage, int8_t adjValue)
+// {
+//   DS3231 Clock;
+//   bool h12_format;
+//   bool pm;
 
-  // update current coordinate and direction
-  if (self->x_coord == self->x_end || self->x_coord == self->x_begin)
-    self->dir = !self->dir;
-  self->x_old = self->x_coord;
-  if (self->dir)
-    self->x_coord++;
-   else
-    self->x_coord--;
+//   Serial.print(String("Old Clock: ") + pTimeDateStorage->hrs + ":" + pTimeDateStorage->min + ":" + pTimeDateStorage->sec);
+//   Clock.setHour(pTimeDateStorage->hrs + adjValue);
+//   Serial.print(String(", New Clock: ") + (Clock.getHour(h12_format, pm)) + ":" + (pTimeDateStorage->min) + ":" + pTimeDateStorage->sec + " \n");
+// }
+// ------------------------------------- End of DO NOT REMOVE -------------------------------------
 
-  // debug info on the second row: current coordinate and moving direction
-  lcd.setCursor(3, 1);
-  lcd.print("        ");
-  int sc;
-  sc = self->x_coord < 10 ? 4 : 3;    // align one/two-digit number
-  lcd.setCursor(sc, 1);
-  lcd.print(self->x_coord);
-  lcd.print('|');
-  lcd.print(self->dir ? "true" : "false");
+void clockDisplayFunc(TimeDateStorage* tds)
+{
+  /* Display clock values on the screen and flash separators (":") */
+  static bool flashSeparators = true;
+  char separator;
+
+  separator = flashSeparators ? ':' : ' ';
+
+  printRtcValueOnDisplay(0, 0, tds->hrs);
+  oled.print(separator);
+
+  printRtcValueOnDisplay(3, 0, tds->min);
+
+  printRtcValueOnDisplay(6, 0, tds->day);
+  oled.print("-");
+
+  printRtcValueOnDisplay(9, 0, tds->mnth);
+  oled.print("-");
+
+  oled.setCursor(12, 0);
+  oled.print(tds->year);
+
+  flashSeparators = !flashSeparators;
 }
+
+/**
+ * Print Hour, Minute, Second, Date or Month to occupy 2 decimal places
+ * (when value is "1" -> print "01")
+ */
+void printRtcValueOnDisplay(uint8_t xPos, uint8_t yPos, uint8_t value)
+{
+  oled.setCursor(xPos, yPos);
+  if (value < 10)
+  {
+    oled.print("0");
+  }
+  oled.print(value);
+}
+
+/**
+ * Read AM2320 - temperature and humidity, 
+ *      BMP085 - pressure,
+ *             - ambient light
+ * params:
+ *      pSensorsData      [OUT]
+ */
+void sensorReadFunc(SensDataStorage* pSensorsData)
+{
+  pSensorsData->temperature = temp_humid.readTemperature();
+  pSensorsData->humidity = temp_humid.readHumidity();
+  pSensorsData->pressure = bmp.readPressure() * PAMMHG;
+  pSensorsData->ambientLight = analogRead(A0);
+} 
+
+/**
+ * Log data to serial interface, display and file 
+ * 
+ * params:
+ *      pSensorsData      [IN]
+ *      pCurrentTimeDate  [IN]
+ */
+void sensorsDataLogFunc(SensDataStorage* const pSensorsData, TimeDateStorage* const pCurrentTimeDate)
+{
+  String logString = String("Time: ") 
+    + (pCurrentTimeDate->year < 10 ? "0" : ""  ) + pCurrentTimeDate->year
+    + (pCurrentTimeDate->mnth < 10 ? "/0" : "/") + pCurrentTimeDate->mnth
+    + (pCurrentTimeDate->day  < 10 ? "/0" : "/") + pCurrentTimeDate->day
+    + (pCurrentTimeDate->hrs  < 10 ? " 0" : " ") + pCurrentTimeDate->hrs
+    + (pCurrentTimeDate->min  < 10 ? ":0" : ":") + pCurrentTimeDate->min 
+    + (pCurrentTimeDate->sec  < 10 ? ":0" : ":") + pCurrentTimeDate->sec + "," 
+    + " Temperature: " + pSensorsData->temperature 
+    + " C, Humidity: " + pSensorsData->humidity
+    + " %, Pressure: " + pSensorsData->pressure
+    + " mmHg, Ambient: " + pSensorsData->ambientLight
+    + "\n";
+
+  Serial.print(logString);
+
+  oled.setCursor(0, 1);
+  oled.print("Temp.   : ");
+  oled.print(int(pSensorsData->temperature));
+  oled.print(" C  ");
+  oled.setCursor(0, 2);
+  oled.print("Humidity: ");
+  oled.print(int(pSensorsData->humidity));
+  oled.print(" %");
+  oled.setCursor(0, 3);
+  oled.print("Press.: ");
+  oled.print(int(pSensorsData->pressure));
+  oled.print(" mmHg");
+}
+
 
 void sdCardProgram() {
   // SD reader is connected to SPI pins (MISO/MOSI/SCK/CS, 5V pwr)
@@ -193,18 +243,19 @@ void sdCardProgram() {
   SdVolume volume;
   SdFile root;
   
-  lcd.begin(16, 2);
-  lcd.setCursor(0, 0);
-  lcd.write("SD Card Init...");
-  lcd.setCursor(0, 1);
-  if (!card.init(SPI_HALF_SPEED, 4))
-    lcd.write("Init failed");
+  //oled.begin();
+  oled.setCursor(0, 0);
+  oled.print("SD Card Init...");
+  oled.setCursor(0, 1);
+  if (!card.init(SPI_HALF_SPEED, 4)){
+    oled.print("Init failed");
+    Serial.print("SD: INIT FAILED");}
   else
-    lcd.write("Init OK");
-  delay(3000);
+    oled.print("Init OK");
+  delay(1000);
   //char cardType[10];
   String cardType = "xxxx";
-  lcd.setCursor(0, 1);
+  oled.setCursor(0, 2);
   switch (card.type()) {
     case SD_CARD_TYPE_SD1:
       cardType = "SD1";
@@ -216,28 +267,28 @@ void sdCardProgram() {
       cardType = "SDHC";
       break;
     default:
-      cardType = "Unknown";
+      cardType = "Unkn";
   }
-  lcd.print("Card Type: ");
-  lcd.print(cardType);
-  delay(5000);
+  oled.print("Card Type: ");
+  oled.println(cardType);
+  delay(3000);
   if (!volume.init(card)) {
-    lcd.print("No FAT16/32\npartition.");
+    oled.print("No FAT partition");
     delay(3000);
   }
   else {
-    lcd.clear();
-    lcd.setCursor(0, 0);
+    oled.clear();
+    oled.setCursor(0, 0);
     //lcd.autoscroll();
     uint32_t volumeSize;
     volumeSize = volume.blocksPerCluster();    // clusters are collections of blocks
     volumeSize *= volume.clusterCount();       // we'll have a lot of clusters
     volumeSize /= 2;                           // SD card blocks are always 512 bytes (2 blocks are 1KB)
-    lcd.print("Vol. size (Kb):");
-    lcd.setCursor(0, 1);
-    lcd.print(volumeSize);
-    delay(7000);
-    lcd.clear();
+    oled.print("Vol. size (Mb):");
+    oled.setCursor(0, 1);
+    oled.print(int(volumeSize/1000));
+    delay(3000);
+    oled.clear();
     //root.openRoot(volume);
     // list all files in the card with date and size
     //root.ls();
@@ -247,56 +298,74 @@ void sdCardProgram() {
     if (logfile){
       logfile.println("Starting log...");
       logfile.close();
-      lcd.print("LOG CREATED [OK]");
+      oled.print("LOG CREATED [OK]");
     }
     else
-      lcd.print("FILE ERROR [01]");
+      oled.print("FILE ERROR [01]");
     
-    delay(5000);
+    delay(2000);
+    oled.clear();
     //lcd.noAutoscroll();
   }
 }
 
 void setup(){
+  Wire.begin();
+  Serial.begin(115200);
+  
+  oled.begin();
+  oled.setPowerSave(0);
+  oled.setFont(u8x8_font_chroma48medium8_r); // u8x8_font_chroma48medium8_r u8x8_font_px437wyse700a_2x2_r u8g2_font_courB12_tf 
+  oled.setContrast(11);
+
   sdCardProgram();
   temp_humid.begin();   // init am2320
   bmp.begin();          // init bmp180
+
   
-  lcd.begin(16, 2);
-  lcd.setCursor(0, 0);
-  lcd.write("SSS: ");
-  lcd.setCursor(0, 1);
-  lcd.write("D:");
-  //Arrow animatedArrow = {" ", true, 12, 15, 12, 12};
-  taskOne.onRun(taskOneFunc);
-  taskTwo.onRun(taskTwoFunc);
-  taskThr.onRun(taskThreeFunc);
-  taskFour.onRun(taskFourFunc);
-  //taskTwo.onRun(arrowStep(animatedArrow));
-  taskOne.setInterval(100);   // call taskOne every 1000 ms
-  taskTwo.setInterval(300);   // call taskTwo every 100 ms
-  taskThr.setInterval(3770);  // call taskThree every 1.77 sec
-  taskFour.setInterval(2000); // call temp & humid every 5 sec
+  oled.clear();
+  oled.setCursor(0, 0);
+
+  clockRead.onRun(clockReadTaskFunction);
+  clockDisp.onRun(clockDisplayTaskFunction);
+  sensorsRead.onRun(sensorReadTaskFunction);
+  sensorsDisp.onRun(sensorsLogTaskFunction);
+
+  clockRead.setInterval(1000);
+  clockDisp.setInterval(500);
+  sensorsRead.setInterval(2000);
+  sensorsDisp.setInterval(3000);
+
+  
+  /* uncomment to set the clock
+   * and disable loop() content
+   **/
+  // DS3231 Clock;
+  // Clock.setHour(18);
+  // Clock.setMinute(53);
+  // Clock.setSecond(00);
+  /******************************/
 }
 
 void loop(){
   
-  if (taskOne.shouldRun())
-    taskOne.run();
+  if (clockRead.shouldRun())
+    clockRead.run();
 
-  if (taskTwo.shouldRun())
-    taskTwo.run();
+  if (clockDisp.shouldRun())
+    clockDisp.run();
 
-  if (taskThr.shouldRun())
-    taskThr.run();
+  if (sensorsRead.shouldRun())
+    sensorsRead.run();
 
-  if (taskFour.shouldRun())
-    taskFour.run();
- 
-//  lcd.setCursor(0, 1);
-//  lcd.write("+");
-//  delay(33);
-//  lcd.setCursor(0, 1);
-//  lcd.write(".");
-//  delay(33);
+  if (sensorsDisp.shouldRun())
+    sensorsDisp.run();
 }
+
+//---------------------------
+// Sketch uses 27894 bytes (97%) of program storage space. Maximum is 28672 bytes.
+// Global variables use 1842 bytes (71%) of dynamic memory, leaving 718 bytes for local variables. Maximum is 2560 bytes.
+// Sketch uses 25286 bytes (88%) of program storage space. Maximum is 28672 bytes.                                                ---> No String type (no log serial)
+// Global variables use 1772 bytes (69%) of dynamic memory, leaving 788 bytes for local variables. Maximum is 2560 bytes.
+// Sketch uses 27862 bytes (97%) of program storage space. Maximum is 28672 bytes.
+// Global variables use 1786 bytes (69%) of dynamic memory, leaving 774 bytes for local variables. Maximum is 2560 bytes.
