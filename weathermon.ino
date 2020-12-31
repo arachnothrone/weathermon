@@ -370,11 +370,10 @@ void sdCardProgram()
 
   if (!card.init(SPI_HALF_SPEED, SD_CHIP_SELECT_PIN))  // SPI_HALF_SPEED, 4    SPI_FULL_SPEED SD_CHIP_SELECT_PIN
   {
+    int sdErrCode = card.errorCode();
+    int sdErrData = card.errorData();
+    
     oled.drawString(0, 1, "SD Init Failed.");
-    char sdErrCode = card.errorCode();
-    char sdErrData = card.errorData();
-    // oled.drawString(0, 2, sdErrCode);
-    // oled.drawString(0, 3, sdErrData);
     oled.drawString(0, 2, "ErrCode/Data:");
     oled.setCursor(0, 3);
     oled.print(sdErrCode);
@@ -419,7 +418,7 @@ void sdCardProgram()
     volumeSize /= 2;                           /* One SD card block is 512 bytes */
     oled.print("Vol. size (Kb):\n");
     oled.print(volumeSize);
-    delay(1000);
+    delay(1500);
     oled.clear();
 
     SD.begin(SPI_HALF_SPEED, SD_CHIP_SELECT_PIN);
@@ -459,18 +458,21 @@ void setup(){
   int dd = now.day();
   int hh = now.hour();
   int mm = now.minute();
+
+  // Add a timestamp to the log file
+  SdFile::dateTimeCallback(FAT_dateTime);
+
   sprintf(GV_LogFileName, "wm%02d%02d%02d.txt", dd, hh, mm);
   oled.setCursor(0, 0);
   oled.print(GV_LogFileName);
   delay(3000);
+  oled.drawString(0, 0, "             ");
   
   logWeatherMonitor = SD.open(GV_LogFileName, FILE_WRITE);
-  // logAsklitt = SD.open("lgfile.txt", FILE_WRITE);
   if(logWeatherMonitor)
   {
     logWeatherMonitor.print(F("--- Starting new log entry ---\n"));
     // logWeatherMonitor.print(F("Time, Light_sensor_value, Active_time_(sec), Previous_state, Current_state, dynamicIlluminanceThr, FullTask(ms), SDlogTask(ms), 2xLcdTaskTimerVal(ms)\n"));
-    // logAsklitt.close();
   }
   else
   {
@@ -495,6 +497,20 @@ void setup(){
   /******************************/
 }
 
+/**
+ * Callback function for SD File timestamp
+ * (FAT_* macro's are a part of SdFat library, whic is wrapped by SD.h)
+ */
+void FAT_dateTime(uint16_t* date, uint16_t* time) {
+  DateTime now = RTC.now();
+  *date = FAT_DATE(now.year(), now.month(), now.day());
+  *time = FAT_TIME(now.hour(), now.minute(), now.second());
+}
+
+
+/**
+ * Main loop
+ */
 void loop(){
   
   if (clockRead.shouldRun())
@@ -522,3 +538,7 @@ void loop(){
 
 // Sketch uses 27880 bytes (97%) of program storage space. Maximum is 28672 bytes.                                                ---> add sd logging
 // Global variables use 1802 bytes (70%) of dynamic memory, leaving 758 bytes for local variables. Maximum is 2560 bytes.
+// Sketch uses 28112 bytes (98%) of program storage space. Maximum is 28672 bytes.
+// Global variables use 1828 bytes (71%) of dynamic memory, leaving 732 bytes for local variables. Maximum is 2560 bytes.
+// Sketch uses 28172 bytes (98%) of program storage space. Maximum is 28672 bytes.                                                ---> add sd file timestamp
+// Global variables use 1804 bytes (70%) of dynamic memory, leaving 756 bytes for local variables. Maximum is 2560 bytes.
