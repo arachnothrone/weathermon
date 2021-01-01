@@ -14,8 +14,8 @@ not found AM2320, 92 >>> 0x5C ?
 
 */
 
-// #include <SPI.h>      // for sd card
-// #include <SD.h>
+#include <SPI.h>      // for sd card
+#include <SD.h>
 #include <Wire.h>     // for AM2320
 #include "Adafruit_Sensor.h"  // for AM2320, connect to I2C
 #include "Adafruit_AM2320.h"
@@ -41,7 +41,7 @@ RTClib RTC;   // DS3231 Clock;  --> Clock.setClockMode(false);	// set to 24h
 
 U8X8_SSD1306_128X32_UNIVISION_HW_I2C oled(/* reset=*/ U8X8_PIN_NONE, /* clock=*/ SCL, /* data=*/ SDA);   // pin remapping with ESP8266 HW I2C
 
-// File logWeatherMonitor;
+File logWeatherMonitor;
 
 typedef struct {
   int year;
@@ -229,95 +229,95 @@ void sensorsDataLogFunc(SensDataStorage* const pSensorsData, TimeDateStorage* co
   oled.print(int(pSensorsData->pressure));
   oled.print(" mmHg");
 
-  // // -------------- log to the file
-  // if (GV_LogFileErrorIndicator != true)
-  // {
-  //   logWeatherMonitor = SD.open(GV_LogFileName, FILE_WRITE); //O_APPEND
-  //   if(logWeatherMonitor)
-  //   {
-  //     logWeatherMonitor.print(logBuffer);
-  //     // logAsklitt.flush();
-  //     // logAsklitt.close();
-  //   }
-  //   else
-  //   {
-  //     /* Error indicator */
-  //     oled.drawString(15, 3, "*");
-  //     // oled.setCursor(11, 2);
-  //     // oled.print(logAsklitt);
-  //     // Serial.println(logAsklitt.availableForWrite());
-  //   }
-  //   logWeatherMonitor.close();
-  // }
+  // -------------- log to the file
+  if (GV_LogFileErrorIndicator != true)
+  {
+    logWeatherMonitor = SD.open(GV_LogFileName, FILE_WRITE); //O_APPEND
+    if(logWeatherMonitor)
+    {
+      logWeatherMonitor.print(logBuffer);
+      // logAsklitt.flush();
+      // logAsklitt.close();
+    }
+    else
+    {
+      /* Error indicator */
+      oled.drawString(15, 3, "*");
+      // oled.setCursor(11, 2);
+      // oled.print(logAsklitt);
+      // Serial.println(logAsklitt.availableForWrite());
+    }
+    logWeatherMonitor.close();
+  }
 }
 
 
-// void sdCardProgram()
-// {
-//   // SD reader is connected to SPI pins (MISO/MOSI/SCK/CS, 5V pwr)
-//   // setup sd card variables
-//   Sd2Card card;
-//   SdVolume volume;
-//   SdFile root;
+void sdCardProgram()
+{
+  // SD reader is connected to SPI pins (MISO/MOSI/SCK/CS, 5V pwr)
+  // setup sd card variables
+  Sd2Card card;
+  SdVolume volume;
+  SdFile root;
 
-//   oled.drawString(0, 0, "SD Card Init...");
+  oled.drawString(0, 0, "SD Card Init...");
 
-//   if (!card.init(SPI_HALF_SPEED, SD_CHIP_SELECT_PIN))  // SPI_HALF_SPEED, 4    SPI_FULL_SPEED SD_CHIP_SELECT_PIN
-//   {
-//     int sdErrCode = card.errorCode();
-//     int sdErrData = card.errorData();
+  if (!card.init(SPI_HALF_SPEED, SD_CHIP_SELECT_PIN))  // SPI_HALF_SPEED, 4    SPI_FULL_SPEED SD_CHIP_SELECT_PIN
+  {
+    int sdErrCode = card.errorCode();
+    int sdErrData = card.errorData();
     
-//     oled.drawString(0, 1, "SD Init Failed.");
-//     oled.drawString(0, 2, "ErrCode/Data:");
-//     oled.setCursor(0, 3);
-//     oled.print(sdErrCode);
-//     oled.setCursor(5, 3);
-//     oled.print(sdErrData);
-//     delay(4000);
-//   }
-//   else
-//   {
-//     oled.drawString(0, 1, "SD Init OK.");
-//   }
-//   delay(500);
-//   //char cardType[10];
-//   String cardType = "----";
-//   switch (card.type()) {
-//     case SD_CARD_TYPE_SD1:
-//       cardType = "SD1";
-//       break;
-//     case SD_CARD_TYPE_SD2:
-//       cardType = "SD2";
-//       break;
-//     case SD_CARD_TYPE_SDHC:
-//       cardType = "SDHC";
-//       break;
-//     default:
-//       cardType = "--";
-//   }
-//   oled.drawString(0, 2, "Card Type: ");
-//   oled.setCursor(11, 2);
-//   oled.print(cardType);
-//   delay(900);
-//   if (!volume.init(card)) {
-//     oled.drawString(0, 3, "No FAT partition");
-//     delay(3000);
-//     oled.clear();
-//   }
-//   else {
-//     oled.clear();
-//     uint32_t volumeSize;
-//     volumeSize = volume.blocksPerCluster();
-//     volumeSize *= volume.clusterCount();
-//     volumeSize /= 2;                           /* One SD card block is 512 bytes */
-//     oled.print("Vol. size (Kb):\n");
-//     oled.print(volumeSize);
-//     delay(1500);
-//     oled.clear();
+    oled.drawString(0, 1, "SD Init Failed.");
+    oled.drawString(0, 2, "ErrCode/Data:");
+    oled.setCursor(0, 3);
+    oled.print(sdErrCode);
+    oled.setCursor(5, 3);
+    oled.print(sdErrData);
+    delay(4000);
+  }
+  else
+  {
+    oled.drawString(0, 1, "SD Init OK.");
+  }
+  delay(500);
+  //char cardType[10];
+  String cardType = "----";
+  switch (card.type()) {
+    case SD_CARD_TYPE_SD1:
+      cardType = "SD1";
+      break;
+    case SD_CARD_TYPE_SD2:
+      cardType = "SD2";
+      break;
+    case SD_CARD_TYPE_SDHC:
+      cardType = "SDHC";
+      break;
+    default:
+      cardType = "--";
+  }
+  oled.drawString(0, 2, "Card Type: ");
+  oled.setCursor(11, 2);
+  oled.print(cardType);
+  delay(1300);
+  if (!volume.init(card)) {
+    oled.drawString(0, 3, "No FAT partition");
+    delay(3000);
+    oled.clear();
+  }
+  else {
+    oled.clear();
+    uint32_t volumeSize;
+    volumeSize = volume.blocksPerCluster();
+    volumeSize *= volume.clusterCount();
+    volumeSize /= 2;                           /* One SD card block is 512 bytes */
+    oled.print("Vol. size (Kb):\n");
+    oled.print(volumeSize);
+    delay(1500);
+    oled.clear();
 
-//     SD.begin(SPI_HALF_SPEED, SD_CHIP_SELECT_PIN);
-//   }
-// }
+    SD.begin(SPI_HALF_SPEED, SD_CHIP_SELECT_PIN);
+  }
+}
 
 
 void setup(){
@@ -329,7 +329,7 @@ void setup(){
   oled.setFont(u8x8_font_chroma48medium8_r); // u8x8_font_chroma48medium8_r u8x8_font_px437wyse700a_2x2_r u8g2_font_courB12_tf 
   oled.setContrast(11);
 
-  //sdCardProgram();
+  sdCardProgram();
 
   temp_humid.begin();   // init am2320
   bmp.begin();          // init bmp180
@@ -339,7 +339,7 @@ void setup(){
   oled.setCursor(0, 0);
 
   // Add a timestamp to the log file
-  //SdFile::dateTimeCallback(FAT_dateTime);
+  SdFile::dateTimeCallback(FAT_dateTime);
 
   DateTime now = RTC.now();
   int dd = now.day();
@@ -352,24 +352,24 @@ void setup(){
   delay(3000);
   oled.drawString(0, 0, "             ");
   
-  // logWeatherMonitor = SD.open(GV_LogFileName, FILE_WRITE);
-  // if(logWeatherMonitor)
-  // {
-  //   logWeatherMonitor.print(F("--- Starting new log entry (non-concurrent version) ---\n"));
-  //   // logWeatherMonitor.print(F("Time, Light_sensor_value, Active_time_(sec), Previous_state, Current_state, dynamicIlluminanceThr, FullTask(ms), SDlogTask(ms), 2xLcdTaskTimerVal(ms)\n"));
-  // }
-  // else
-  // {
-  //   GV_LogFileErrorIndicator = true;
-  //   oled.drawString(0, 0, "FILE_ERROR_01");
-  //   delay(2000);
-  //   oled.drawString(0, 0, "             ");
+  logWeatherMonitor = SD.open(GV_LogFileName, FILE_WRITE);
+  if(logWeatherMonitor)
+  {
+    logWeatherMonitor.print(F("--- Starting new log entry (non-concurrent version) ---\n"));
+    // logWeatherMonitor.print(F("Time, Light_sensor_value, Active_time_(sec), Previous_state, Current_state, dynamicIlluminanceThr, FullTask(ms), SDlogTask(ms), 2xLcdTaskTimerVal(ms)\n"));
+  }
+  else
+  {
+    GV_LogFileErrorIndicator = true;
+    oled.drawString(0, 0, "FILE_ERROR_01");
+    delay(2000);
+    oled.drawString(0, 0, "             ");
 
-  //   /* Error indicator */
-  //   oled.drawString(15, 3, "x");
-  //   delay(1000);
-  // }
-  // logWeatherMonitor.close();
+    /* Error indicator */
+    oled.drawString(15, 3, "x");
+    delay(1000);
+  }
+  logWeatherMonitor.close();
 
   timerOne = millis() + MAIN_TASK_PERIOD_MS;
   timerTwo = timerOne;
@@ -389,9 +389,9 @@ void setup(){
  * (FAT_* macro's are a part of SdFat library, whic is wrapped by SD.h)
  */
 void FAT_dateTime(uint16_t* date, uint16_t* time) {
-  // DateTime now = RTC.now();
-  // *date = FAT_DATE(now.year(), now.month(), now.day());
-  // *time = FAT_TIME(now.hour(), now.minute(), now.second());
+  DateTime now = RTC.now();
+  *date = FAT_DATE(now.year(), now.month(), now.day());
+  *time = FAT_TIME(now.hour(), now.minute(), now.second());
 }
 
 void blinkClockSeparators()
@@ -454,3 +454,5 @@ void loop()
 // Global variables use 837 bytes (32%) of dynamic memory, leaving 1723 bytes for local variables. Maximum is 2560 bytes.
 // Sketch uses 17328 bytes (60%) of program storage space. Maximum is 28672 bytes.                                                ---> all functionality without SD card. 
 // Global variables use 925 bytes (36%) of dynamic memory, leaving 1635 bytes for local variables. Maximum is 2560 bytes.
+// Sketch uses 27942 bytes (97%) of program storage space. Maximum is 28672 bytes.                                                ---> SD returned back
+// Global variables use 1752 bytes (68%) of dynamic memory, leaving 808 bytes for local variables. Maximum is 2560 bytes.
