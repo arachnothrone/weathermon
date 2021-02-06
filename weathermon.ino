@@ -14,14 +14,20 @@ not found AM2320, 92 >>> 0x5C ?
 
 */
 
+#define BUILD_WITH_SD_CARD  0
+
+#if BUILD_WITH_SD_CARD
 #include <SPI.h>      // for sd card
 #include <SD.h>
+#endif
+
 #include <Wire.h>     // for AM2320
 #include "Adafruit_Sensor.h"  // for AM2320, connect to I2C
 #include "Adafruit_AM2320.h"
 #include "Adafruit_BMP085.h"  // Pressure sensor, I2C (with pullup resistors onboard)
 #include "DS3231.h"   // RTC
 #include <U8x8lib.h>
+#include <SoftwareSerial.h>
 
 #define PAMMHG                        (0.00750062)
 #define RTC_READ_TASK_PERIOD_MS       (1000)
@@ -33,6 +39,7 @@ not found AM2320, 92 >>> 0x5C ?
 
 #define MAIN_TASK_PERIOD_MS             (10000)
 #define BLINK_SEPARATOR_TASK_PERIOD_MS  (500)
+#define BLUETOOTH_TASK_PERIOD_MS        (600)
 
 //AM2320 temp_humid;
 Adafruit_AM2320 temp_humid = Adafruit_AM2320();
@@ -41,7 +48,11 @@ RTClib RTC;   // DS3231 Clock;  --> Clock.setClockMode(false);	// set to 24h
 
 U8X8_SSD1306_128X32_UNIVISION_HW_I2C oled(/* reset=*/ U8X8_PIN_NONE, /* clock=*/ SCL, /* data=*/ SDA);   // pin remapping with ESP8266 HW I2C
 
+#if BUILD_WITH_SD_CARD
 File logWeatherMonitor;
+#endif
+
+SoftwareSerial swSerial(8, 9); // RX, TX
 
 typedef struct {
   int year;
@@ -67,11 +78,14 @@ typedef struct
 static TimeDateStorage currentTimeDate = {0, 0, 0, 0, 0, 0, true, false, false};
 static SensDataStorage sensorsData = {0, 0, 0, 0};
 
-static char     GV_LogFileName[SD_LOG_FILE_NAME_LEN] = "asddhhmm.txt";
+#if BUILD_WITH_SD_CARD
+static char     GV_LogFileName[SD_LOG_FILE_NAME_LEN] = "wmddhhmm.txt";
 static bool     GV_LogFileErrorIndicator = false;
+#endif
 
 static unsigned long timerOne = 0;
 static unsigned long timerTwo = 0;
+static unsigned long timerThree = 0;
 
 
 void clockReadFunc(TimeDateStorage* tds)
@@ -191,7 +205,7 @@ void sensorsDataLogFunc(SensDataStorage* const pSensorsData, TimeDateStorage* co
   char logBuffer[LOG_BUFFER_LEN];
 
   sprintf(logBuffer
-    , "Time: %04d/%02d/%02d %02d:%02d:%02d, Temperature: %2d.%1d C, Humidity: %2d.%1d %%, Pressure: %3d.%2d mmHg, Ambient: %4d\n"
+    , "Time: %04d/%02d/%02d %02d:%02d:%02d, Temperature: %2d.%1d C, Humidity: %2d.%1d %%, Pressure: %3d.%02d mmHg, Ambient: %4d\n"
     , pCurrentTimeDate->year, pCurrentTimeDate->mnth, pCurrentTimeDate->day
     , pCurrentTimeDate->hrs, pCurrentTimeDate->min, pCurrentTimeDate->sec
     , (int)pSensorsData->temperature, (int)(pSensorsData->temperature * 10) % 10
@@ -229,6 +243,7 @@ void sensorsDataLogFunc(SensDataStorage* const pSensorsData, TimeDateStorage* co
   oled.print(int(pSensorsData->pressure));
   oled.print(" mmHg");
 
+#if BUILD_WITH_SD_CARD
   // -------------- log to the file
   if (GV_LogFileErrorIndicator != true)
   {
@@ -249,9 +264,10 @@ void sensorsDataLogFunc(SensDataStorage* const pSensorsData, TimeDateStorage* co
     }
     logWeatherMonitor.close();
   }
+#endif
 }
 
-
+#if BUILD_WITH_SD_CARD
 void sdCardProgram()
 {
   // SD reader is connected to SPI pins (MISO/MOSI/SCK/CS, 5V pwr)
@@ -318,34 +334,87 @@ void sdCardProgram()
     SD.begin(SPI_HALF_SPEED, SD_CHIP_SELECT_PIN);
   }
 }
+#endif
 
+void communicationFunc(SensDataStorage* const pSensorsData, TimeDateStorage* const pCurrentTimeDate)
+{
+  if (swSerial.available())
+  {
+    // 0x0D, 0x0A - CR, LF
+    char readBuffer[10] = {0};
+    char sendBuffer[103] = {0};
+    char r = 0;
+    char s = 0;
+    int i = 0;
+    int j = 0;
+
+    while (swSerial.available()) 
+    {
+      readBuffer[i] = swSerial.read();
+      i++;
+    }
+
+    // DEBUG print received to console
+    for (j = 0; j < i; j++)
+    {
+      Serial.println(readBuffer[j], HEX);
+    }
+    Serial.write(readBuffer);
+    Serial.print("Bytes received: ");
+    Serial.println(i);
+
+    oled.setCursor(13, 2);
+    oled.print("->");
+
+    // Time: 2021/02/06 16:29:43, Temperature: 26.9 C, Humidity: 13.8 %, Pressure: 744.43 mmHg, Ambient:  936
+    sprintf(sendBuffer
+    , "Time: %04d/%02d/%02d %02d:%02d:%02d, Temperature: %2d.%1d C, Humidity: %2d.%1d %%, Pressure: %3d.%2d mmHg, Ambient: %4d\n"
+    , pCurrentTimeDate->year, pCurrentTimeDate->mnth, pCurrentTimeDate->day
+    , pCurrentTimeDate->hrs, pCurrentTimeDate->min, pCurrentTimeDate->sec
+    , (int)pSensorsData->temperature, (int)(pSensorsData->temperature * 10) % 10
+    , (int)pSensorsData->humidity, (int)(pSensorsData->humidity * 10) % 10
+    , (int)pSensorsData->pressure, (int)(pSensorsData->pressure * 100) % 100
+    , pSensorsData->ambientLight
+    );
+    
+    swSerial.write(sendBuffer);
+
+    oled.setCursor(13, 2);
+    oled.print("  ");
+  }
+}
 
 void setup(){
   Wire.begin();
   Serial.begin(115200);
+  swSerial.begin(9600);                     // BT HC-06 module connected to pin 8, 9
   
   oled.begin();
   oled.setPowerSave(0);
   oled.setFont(u8x8_font_chroma48medium8_r); // u8x8_font_chroma48medium8_r u8x8_font_px437wyse700a_2x2_r u8g2_font_courB12_tf 
   oled.setContrast(11);
 
+#if BUILD_WITH_SD_CARD
   sdCardProgram();
+#endif
 
   temp_humid.begin();   // init am2320
   bmp.begin();          // init bmp180
 
-  
   oled.clear();
   oled.setCursor(0, 0);
 
+#if BUILD_WITH_SD_CARD
   // Add a timestamp to the log file
   SdFile::dateTimeCallback(FAT_dateTime);
+#endif
 
   DateTime now = RTC.now();
   int dd = now.day();
   int hh = now.hour();
   int mm = now.minute();
 
+#if BUILD_WITH_SD_CARD
   sprintf(GV_LogFileName, "wm%02d%02d%02d.txt", dd, hh, mm);
   oled.setCursor(0, 0);
   oled.print(GV_LogFileName);
@@ -370,6 +439,7 @@ void setup(){
     delay(1000);
   }
   logWeatherMonitor.close();
+#endif
 
   timerOne = millis() + MAIN_TASK_PERIOD_MS;
   timerTwo = timerOne;
@@ -384,6 +454,7 @@ void setup(){
   /******************************/
 }
 
+#if BUILD_WITH_SD_CARD
 /**
  * Callback function for SD File timestamp
  * (FAT_* macro's are a part of SdFat library, whic is wrapped by SD.h)
@@ -393,6 +464,7 @@ void FAT_dateTime(uint16_t* date, uint16_t* time) {
   *date = FAT_DATE(now.year(), now.month(), now.day());
   *time = FAT_TIME(now.hour(), now.minute(), now.second());
 }
+#endif
 
 void blinkClockSeparators()
 {
@@ -437,6 +509,13 @@ void loop()
     blinkClockSeparators();
     timerTwo = currentMs;
   }
+
+  // Communication task - every 7 sec
+  if (currentMs - timerThree >= BLUETOOTH_TASK_PERIOD_MS)
+  {
+    communicationFunc(&sensorsData, &currentTimeDate);
+    timerThree = currentMs;
+  }
 }
 
 //---------------------------
@@ -456,3 +535,5 @@ void loop()
 // Global variables use 925 bytes (36%) of dynamic memory, leaving 1635 bytes for local variables. Maximum is 2560 bytes.
 // Sketch uses 27942 bytes (97%) of program storage space. Maximum is 28672 bytes.                                                ---> SD returned back
 // Global variables use 1752 bytes (68%) of dynamic memory, leaving 808 bytes for local variables. Maximum is 2560 bytes.
+// Sketch uses 18212 bytes (63%) of program storage space. Maximum is 28672 bytes.                                                ---> no SD, + SoftwareSerial
+// Global variables use 1022 bytes (39%) of dynamic memory, leaving 1538 bytes for local variables. Maximum is 2560 bytes.
