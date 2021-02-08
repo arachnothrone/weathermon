@@ -1,7 +1,9 @@
 /*
 
-Version without cuncurrency
-All IIC operations are sequential
+Version with Thread
+
+To build with SD card set BUILD_WITH_SD_CARD to 1, 
+this require additional 10 kB of program memory
 
 I2C addresses:
 
@@ -21,6 +23,7 @@ not found AM2320, 92 >>> 0x5C ?
 #include <SD.h>
 #endif
 
+#include <Thread.h>
 #include <Wire.h>     // for AM2320
 #include "Adafruit_Sensor.h"  // for AM2320, connect to I2C
 #include "Adafruit_AM2320.h"
@@ -41,6 +44,9 @@ not found AM2320, 92 >>> 0x5C ?
 #define BLINK_SEPARATOR_TASK_PERIOD_MS  (500)
 #define BLUETOOTH_TASK_PERIOD_MS        (600)
 
+#define BT_READBUFFER_SIZE              (10)
+#define BT_SENDBUFFER_SIZE              (105)
+
 //AM2320 temp_humid;
 Adafruit_AM2320 temp_humid = Adafruit_AM2320();
 Adafruit_BMP085 bmp;
@@ -53,6 +59,10 @@ File logWeatherMonitor;
 #endif
 
 SoftwareSerial swSerial(8, 9); // RX, TX
+
+Thread mainTask = Thread();             // Main task, query all sensors every 10 seconds
+Thread blinkSeparatorTask = Thread();   // Blink HH:MM separator on display every 500 ms
+Thread communicationTask = Thread();    // BT communication task, run every 600 ms
 
 typedef struct {
   int year;
@@ -341,14 +351,13 @@ void communicationFunc(SensDataStorage* const pSensorsData, TimeDateStorage* con
   if (swSerial.available())
   {
     // 0x0D, 0x0A - CR, LF
-    char readBuffer[10] = {0};
-    char sendBuffer[103] = {0};
-    char r = 0;
-    char s = 0;
+    char readBuffer[BT_READBUFFER_SIZE] = {0};
+    char sendBuffer[BT_SENDBUFFER_SIZE] = {0};
     int i = 0;
     int j = 0;
+    int k = 0;
 
-    while (swSerial.available()) 
+    while (swSerial.available() && (i < BT_READBUFFER_SIZE)) 
     {
       readBuffer[i] = swSerial.read();
       i++;
@@ -359,9 +368,22 @@ void communicationFunc(SensDataStorage* const pSensorsData, TimeDateStorage* con
     {
       Serial.println(readBuffer[j], HEX);
     }
-    Serial.write(readBuffer);
+
+    Serial.println(readBuffer);
     Serial.print("Bytes received: ");
     Serial.println(i);
+
+    // Flush the rest of the BT sw serial buffer if received more than BT_READBUFFER_SIZE
+    if (swSerial.available())
+    {
+      while (swSerial.available())
+      {
+        swSerial.read();
+        k++;
+      }
+      Serial.print(k);
+      Serial.print(" extra bytes dumped.\n");
+    }
 
     oled.setCursor(13, 2);
     oled.print("->");
@@ -384,11 +406,52 @@ void communicationFunc(SensDataStorage* const pSensorsData, TimeDateStorage* con
   }
 }
 
-void setup(){
+/**
+ * Main Task funcion:
+ * 
+ * Call reading RTC/sensors + writing to log/dislpay every 10 seconds
+ * typical task execution time ~9 (8-12) ms (for IIC devices only)
+ */
+void mainTaskFunction()
+{
+  clockReadFunc(&currentTimeDate);
+  sensorReadFunc(&sensorsData);
+  clockDisplayFunc(&currentTimeDate);
+  sensorsDataLogFunc(&sensorsData, &currentTimeDate);
+}
+
+/**
+ * Communication Task funcion:
+ * 
+ * Check if there is a request arrived to the BT module, 
+ * perform appropriate response
+ */
+void communicationTaskFunction()
+{
+  communicationFunc(&sensorsData, &currentTimeDate);
+}
+
+/**
+ * Blink Separator Task funcion:
+ * 
+ * Flash hours-minutes separator every 0.5 sec
+ */
+void blinkSeparatorTaskFunction()
+{
+  static int SeparatorsCNT = 0;
+  blinkClockSeparators();
+  Serial.print("::: separators ::: ");
+  Serial.println(SeparatorsCNT++);
+}
+
+void setup()
+{
+  // Set up serial interfaces
   Wire.begin();
   Serial.begin(115200);
   swSerial.begin(9600);                     // BT HC-06 module connected to pin 8, 9
   
+  // Set up OLED display
   oled.begin();
   oled.setPowerSave(0);
   oled.setFont(u8x8_font_chroma48medium8_r); // u8x8_font_chroma48medium8_r u8x8_font_px437wyse700a_2x2_r u8g2_font_courB12_tf 
@@ -398,11 +461,22 @@ void setup(){
   sdCardProgram();
 #endif
 
+  // Set up sensors
   temp_humid.begin();   // init am2320
   bmp.begin();          // init bmp180
 
   oled.clear();
   oled.setCursor(0, 0);
+
+  // Configure tasks
+  mainTask.onRun(mainTaskFunction);
+  communicationTask.onRun(communicationTaskFunction);
+  blinkSeparatorTask.onRun(blinkSeparatorTaskFunction);
+
+  // Configure tasks periods
+  mainTask.setInterval(MAIN_TASK_PERIOD_MS);
+  communicationTask.setInterval(BLUETOOTH_TASK_PERIOD_MS);
+  blinkSeparatorTask.setInterval(BLINK_SEPARATOR_TASK_PERIOD_MS);
 
 #if BUILD_WITH_SD_CARD
   // Add a timestamp to the log file
@@ -488,33 +562,56 @@ void loop()
   static uint32_t stopMeasTimerUs = 0;
   uint32_t startMeasTimerUs = micros();
   
-  // call reading RTC/sensors + writing to log/dislpay every 15 seconds
-  // typical task execution time ~9 (8-12) us (for IIC devices only)
-  if (currentMs - timerOne >= MAIN_TASK_PERIOD_MS)
-  {
-    clockReadFunc(&currentTimeDate);
-    sensorReadFunc(&sensorsData);
-    clockDisplayFunc(&currentTimeDate);
-    sensorsDataLogFunc(&sensorsData, &currentTimeDate);
-    timerOne = currentMs;
-    Serial.print("Main task ET, us: ");
-    Serial.println(stopMeasTimerUs);
-  }
+  // // call reading RTC/sensors + writing to log/dislpay every 15 seconds
+  // // typical task execution time ~9 (8-12) us (for IIC devices only)
+  // if (currentMs - timerOne >= MAIN_TASK_PERIOD_MS)
+  // {
+  //   clockReadFunc(&currentTimeDate);
+  //   sensorReadFunc(&sensorsData);
+  //   clockDisplayFunc(&currentTimeDate);
+  //   sensorsDataLogFunc(&sensorsData, &currentTimeDate);
+  //   timerOne = currentMs;
+  //   Serial.print("Main task ET, us: ");
+  //   Serial.println(stopMeasTimerUs);
+  // }
   
-  stopMeasTimerUs = micros() - startMeasTimerUs;
+  // stopMeasTimerUs = micros() - startMeasTimerUs;
   
-  // flash hours-minutes separator every 0.5 sec
-  if (currentMs - timerTwo >= BLINK_SEPARATOR_TASK_PERIOD_MS)
+  // // flash hours-minutes separator every 0.5 sec
+  // if (currentMs - timerTwo >= BLINK_SEPARATOR_TASK_PERIOD_MS)
+  // {
+  //   blinkClockSeparators();
+  //   timerTwo = currentMs;
+  // }
+
+  // // Communication task - every 7 sec
+  // if (currentMs - timerThree >= BLUETOOTH_TASK_PERIOD_MS)
+  // {
+  //   communicationFunc(&sensorsData, &currentTimeDate);
+  //   timerThree = currentMs;
+  // }
+
+  //--------------------------
+  
+  // if (currentMs - timerTwo >= 1000)
+  // {
+  //   Serial.print("mainloop\n");
+  //   timerTwo = currentMs;
+  // }
+
+  if (mainTask.shouldRun())
   {
-    blinkClockSeparators();
-    timerTwo = currentMs;
+    mainTask.run();
   }
 
-  // Communication task - every 7 sec
-  if (currentMs - timerThree >= BLUETOOTH_TASK_PERIOD_MS)
+  if (blinkSeparatorTask.shouldRun())
   {
-    communicationFunc(&sensorsData, &currentTimeDate);
-    timerThree = currentMs;
+    blinkSeparatorTask.run();
+  }
+
+  if (communicationTask.shouldRun())
+  {
+    communicationTask.run();
   }
 }
 
@@ -537,3 +634,5 @@ void loop()
 // Global variables use 1752 bytes (68%) of dynamic memory, leaving 808 bytes for local variables. Maximum is 2560 bytes.
 // Sketch uses 18212 bytes (63%) of program storage space. Maximum is 28672 bytes.                                                ---> no SD, + SoftwareSerial
 // Global variables use 1022 bytes (39%) of dynamic memory, leaving 1538 bytes for local variables. Maximum is 2560 bytes.
+// Sketch uses 19466 bytes (67%) of program storage space. Maximum is 28672 bytes.                                                ---> add BT communication
+// Global variables use 1168 bytes (45%) of dynamic memory, leaving 1392 bytes for local variables. Maximum is 2560 bytes.
