@@ -44,7 +44,7 @@ not found AM2320, 92 >>> 0x5C ?
 #define BLINK_SEPARATOR_TASK_PERIOD_MS  (500)
 #define BLUETOOTH_TASK_PERIOD_MS        (600)
 
-#define BT_READBUFFER_SIZE              (10)
+#define BT_READBUFFER_SIZE              (11)
 #define BT_SENDBUFFER_SIZE              (105)
 
 //AM2320 temp_humid;
@@ -92,10 +92,6 @@ static SensDataStorage sensorsData = {0, 0, 0, 0};
 static char     GV_LogFileName[SD_LOG_FILE_NAME_LEN] = "wmddhhmm.txt";
 static bool     GV_LogFileErrorIndicator = false;
 #endif
-
-static unsigned long timerOne = 0;
-static unsigned long timerTwo = 0;
-static unsigned long timerThree = 0;
 
 
 void clockReadFunc(TimeDateStorage* tds)
@@ -357,7 +353,7 @@ void communicationFunc(SensDataStorage* const pSensorsData, TimeDateStorage* con
     int j = 0;
     int k = 0;
 
-    while (swSerial.available() && (i < BT_READBUFFER_SIZE)) 
+    while (swSerial.available() && (i < BT_READBUFFER_SIZE - 1)) 
     {
       readBuffer[i] = swSerial.read();
       i++;
@@ -366,9 +362,11 @@ void communicationFunc(SensDataStorage* const pSensorsData, TimeDateStorage* con
     // DEBUG print received to console
     for (j = 0; j < i; j++)
     {
-      Serial.println(readBuffer[j], HEX);
+      Serial.print(readBuffer[j], HEX);
+      Serial.print(" ");
     }
 
+    Serial.print("\n");
     Serial.println(readBuffer);
     Serial.print("Bytes received: ");
     Serial.println(i);
@@ -438,10 +436,7 @@ void communicationTaskFunction()
  */
 void blinkSeparatorTaskFunction()
 {
-  static int SeparatorsCNT = 0;
   blinkClockSeparators();
-  Serial.print("::: separators ::: ");
-  Serial.println(SeparatorsCNT++);
 }
 
 void setup()
@@ -514,9 +509,6 @@ void setup()
   }
   logWeatherMonitor.close();
 #endif
-
-  timerOne = millis() + MAIN_TASK_PERIOD_MS;
-  timerTwo = timerOne;
   
   /* uncomment to set the clock
    * and disable loop() content
@@ -558,47 +550,6 @@ void blinkClockSeparators()
  */
 void loop()
 {
-  unsigned long currentMs = millis();
-  static uint32_t stopMeasTimerUs = 0;
-  uint32_t startMeasTimerUs = micros();
-  
-  // // call reading RTC/sensors + writing to log/dislpay every 15 seconds
-  // // typical task execution time ~9 (8-12) us (for IIC devices only)
-  // if (currentMs - timerOne >= MAIN_TASK_PERIOD_MS)
-  // {
-  //   clockReadFunc(&currentTimeDate);
-  //   sensorReadFunc(&sensorsData);
-  //   clockDisplayFunc(&currentTimeDate);
-  //   sensorsDataLogFunc(&sensorsData, &currentTimeDate);
-  //   timerOne = currentMs;
-  //   Serial.print("Main task ET, us: ");
-  //   Serial.println(stopMeasTimerUs);
-  // }
-  
-  // stopMeasTimerUs = micros() - startMeasTimerUs;
-  
-  // // flash hours-minutes separator every 0.5 sec
-  // if (currentMs - timerTwo >= BLINK_SEPARATOR_TASK_PERIOD_MS)
-  // {
-  //   blinkClockSeparators();
-  //   timerTwo = currentMs;
-  // }
-
-  // // Communication task - every 7 sec
-  // if (currentMs - timerThree >= BLUETOOTH_TASK_PERIOD_MS)
-  // {
-  //   communicationFunc(&sensorsData, &currentTimeDate);
-  //   timerThree = currentMs;
-  // }
-
-  //--------------------------
-  
-  // if (currentMs - timerTwo >= 1000)
-  // {
-  //   Serial.print("mainloop\n");
-  //   timerTwo = currentMs;
-  // }
-
   if (mainTask.shouldRun())
   {
     mainTask.run();
@@ -636,3 +587,5 @@ void loop()
 // Global variables use 1022 bytes (39%) of dynamic memory, leaving 1538 bytes for local variables. Maximum is 2560 bytes.
 // Sketch uses 19466 bytes (67%) of program storage space. Maximum is 28672 bytes.                                                ---> add BT communication
 // Global variables use 1168 bytes (45%) of dynamic memory, leaving 1392 bytes for local variables. Maximum is 2560 bytes.
+// Sketch uses 20034 bytes (69%) of program storage space. Maximum is 28672 bytes.                                                ---> Thread returned back
+// Global variables use 1221 bytes (47%) of dynamic memory, leaving 1339 bytes for local variables. Maximum is 2560 bytes.
