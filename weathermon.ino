@@ -1,4 +1,10 @@
 /*
+
+Version with Thread
+
+To build with SD card set BUILD_WITH_SD_CARD to 1, 
+this require additional 10 kB of program memory
+
 I2C addresses:
 
 Found address: 60 (0x3C)     - OLED 4-line display
@@ -10,16 +16,21 @@ not found AM2320, 92 >>> 0x5C ?
 
 */
 
-#include <Thread.h>
+#define BUILD_WITH_SD_CARD  0
+
+#if BUILD_WITH_SD_CARD
 #include <SPI.h>      // for sd card
 #include <SD.h>
+#endif
+
+#include <Thread.h>
 #include <Wire.h>     // for AM2320
-//#include <AM2320.h>   // for AM2320
 #include "Adafruit_Sensor.h"  // for AM2320, connect to I2C
 #include "Adafruit_AM2320.h"
 #include "Adafruit_BMP085.h"  // Pressure sensor, I2C (with pullup resistors onboard)
 #include "DS3231.h"   // RTC
 #include <U8x8lib.h>
+#include <SoftwareSerial.h>
 
 #define PAMMHG                        (0.00750062)
 #define RTC_READ_TASK_PERIOD_MS       (1000)
@@ -29,18 +40,29 @@ not found AM2320, 92 >>> 0x5C ?
 #define LOG_BUFFER_LEN                (106)
 #define SD_LOG_FILE_NAME_LEN          (13)
 
+#define MAIN_TASK_PERIOD_MS             (10000)
+#define BLINK_SEPARATOR_TASK_PERIOD_MS  (500)
+#define BLUETOOTH_TASK_PERIOD_MS        (600)
+
+#define BT_READBUFFER_SIZE              (11)
+#define BT_SENDBUFFER_SIZE              (105)
+
 //AM2320 temp_humid;
 Adafruit_AM2320 temp_humid = Adafruit_AM2320();
 Adafruit_BMP085 bmp;
 RTClib RTC;   // DS3231 Clock;  --> Clock.setClockMode(false);	// set to 24h
 
-//U8X8_SSD1306_128X32_UNIVISION_SW_I2C oled(/* clock=*/ 5, /* data=*/ 4, /* reset=*/ U8X8_PIN_NONE);   // OLEDs without Reset of the Display
 U8X8_SSD1306_128X32_UNIVISION_HW_I2C oled(/* reset=*/ U8X8_PIN_NONE, /* clock=*/ SCL, /* data=*/ SDA);   // pin remapping with ESP8266 HW I2C
 
-Thread clockRead = Thread();  // Read RTC data, calling every second
-Thread clockDisp = Thread();  // Display clock line on the screen, being called every 1/2 sec
-Thread sensorsRead = Thread();  // Read AM2320, ambient and BMP sensors
-Thread sensorsDisp = Thread();  // Display sensors data and log to serial/file
+#if BUILD_WITH_SD_CARD
+File logWeatherMonitor;
+#endif
+
+SoftwareSerial swSerial(8, 9); // RX, TX
+
+Thread mainTask = Thread();             // Main task, query all sensors every 10 seconds
+Thread blinkSeparatorTask = Thread();   // Blink HH:MM separator on display every 500 ms
+Thread communicationTask = Thread();    // BT communication task, run every 600 ms
 
 typedef struct {
   int year;
@@ -63,34 +85,13 @@ typedef struct
   char  am2320error[20];  // "AM_ERR: CRC Failed" or "AM_ERR: OFFLINE"
 } SensDataStorage;
 
-// TODO: add semaphore protection for currentTimeDate & sensorsData
 static TimeDateStorage currentTimeDate = {0, 0, 0, 0, 0, 0, true, false, false};
 static SensDataStorage sensorsData = {0, 0, 0, 0};
 
-static char     GV_LogFileName[SD_LOG_FILE_NAME_LEN] = "asddhhmm.txt";
+#if BUILD_WITH_SD_CARD
+static char     GV_LogFileName[SD_LOG_FILE_NAME_LEN] = "wmddhhmm.txt";
 static bool     GV_LogFileErrorIndicator = false;
-
-File logWeatherMonitor;
-
-void clockReadTaskFunction()
-{
-  clockReadFunc(&currentTimeDate);
-}
-
-void clockDisplayTaskFunction()
-{
-  clockDisplayFunc(&currentTimeDate);
-}
-
-void sensorReadTaskFunction()
-{
-  sensorReadFunc(&sensorsData);
-}
-
-void sensorsLogTaskFunction()
-{
-  sensorsDataLogFunc(&sensorsData, &currentTimeDate);
-}
+#endif
 
 
 void clockReadFunc(TimeDateStorage* tds)
@@ -153,14 +154,9 @@ void clockReadFunc(TimeDateStorage* tds)
 
 void clockDisplayFunc(TimeDateStorage* tds)
 {
-  /* Display clock values on the screen and flash separators (":") */
-  static bool flashSeparators = true;
-  char separator;
-
-  separator = flashSeparators ? ':' : ' ';
-
+  /* Display clock values on the screen */
+  
   printRtcValueOnDisplay(0, 0, tds->hrs);
-  oled.print(separator);
 
   printRtcValueOnDisplay(3, 0, tds->min);
 
@@ -172,8 +168,6 @@ void clockDisplayFunc(TimeDateStorage* tds)
 
   oled.setCursor(12, 0);
   oled.print(tds->year);
-
-  flashSeparators = !flashSeparators;
 }
 
 /**
@@ -217,7 +211,7 @@ void sensorsDataLogFunc(SensDataStorage* const pSensorsData, TimeDateStorage* co
   char logBuffer[LOG_BUFFER_LEN];
 
   sprintf(logBuffer
-    , "Time: %04d/%02d/%02d %02d:%02d:%02d, Temperature: %2d.%1d C, Humidity: %2d.%1d %%, Pressure: %3d.%2d mmHg, Ambient: %4d\n"
+    , "Time: %04d/%02d/%02d %02d:%02d:%02d, Temperature: %2d.%1d C, Humidity: %2d.%1d %%, Pressure: %3d.%02d mmHg, Ambient: %4d\n"
     , pCurrentTimeDate->year, pCurrentTimeDate->mnth, pCurrentTimeDate->day
     , pCurrentTimeDate->hrs, pCurrentTimeDate->min, pCurrentTimeDate->sec
     , (int)pSensorsData->temperature, (int)(pSensorsData->temperature * 10) % 10
@@ -255,19 +249,13 @@ void sensorsDataLogFunc(SensDataStorage* const pSensorsData, TimeDateStorage* co
   oled.print(int(pSensorsData->pressure));
   oled.print(" mmHg");
 
+#if BUILD_WITH_SD_CARD
   // -------------- log to the file
   if (GV_LogFileErrorIndicator != true)
   {
     logWeatherMonitor = SD.open(GV_LogFileName, FILE_WRITE); //O_APPEND
     if(logWeatherMonitor)
     {
-      // sprintf(sdLogBuffer, "%04d/%02d/%02d_%02d:%02d:%02d %4d %6d %d %d %4d %4d %4d %4d \n"
-      //     , year, mnth, day, hour, minu, seco
-      //     , sensorValue, activeTimeProgressInd
-      //     , previousState, currentState, dynamicIlluminanceThr
-      //     , fullTaskTimerVal, logTaskTimerVal, lcdTaskTimerVal
-      //     );
-
       logWeatherMonitor.print(logBuffer);
       // logAsklitt.flush();
       // logAsklitt.close();
@@ -282,82 +270,10 @@ void sensorsDataLogFunc(SensDataStorage* const pSensorsData, TimeDateStorage* co
     }
     logWeatherMonitor.close();
   }
+#endif
 }
 
-
-// void sdCardProgram() {
-//   // SD reader is connected to SPI pins (MISO/MOSI/SCK/CS, 5V pwr)
-//   // setup sd card variables
-//   Sd2Card card;
-//   SdVolume volume;
-//   SdFile root;
-  
-//   //oled.begin();
-//   oled.setCursor(0, 0);
-//   oled.print("SD Card Init...");
-//   oled.setCursor(0, 1);
-//   if (!card.init(SPI_HALF_SPEED, 4)){
-//     oled.print("Init failed");
-//     Serial.print("SD: INIT FAILED");}
-//   else
-//     oled.print("Init OK");
-//   delay(1000);
-//   //char cardType[10];
-//   String cardType = "xxxx";
-//   oled.setCursor(0, 2);
-//   switch (card.type()) {
-//     case SD_CARD_TYPE_SD1:
-//       cardType = "SD1";
-//       break;
-//     case SD_CARD_TYPE_SD2:
-//       cardType = "SD2";
-//       break;
-//     case SD_CARD_TYPE_SDHC:
-//       cardType = "SDHC";
-//       break;
-//     default:
-//       cardType = "Unkn";
-//   }
-//   oled.print("Card Type: ");
-//   oled.println(cardType);
-//   delay(3000);
-//   if (!volume.init(card)) {
-//     oled.print("No FAT partition");
-//     delay(3000);
-//   }
-//   else {
-//     oled.clear();
-//     oled.setCursor(0, 0);
-//     //lcd.autoscroll();
-//     uint32_t volumeSize;
-//     volumeSize = volume.blocksPerCluster();    // clusters are collections of blocks
-//     volumeSize *= volume.clusterCount();       // we'll have a lot of clusters
-//     volumeSize /= 2;                           // SD card blocks are always 512 bytes (2 blocks are 1KB)
-//     oled.print("Vol. size (Mb):");
-//     oled.setCursor(0, 1);
-//     oled.print(int(volumeSize/1000));
-//     delay(3000);
-//     oled.clear();
-//     //root.openRoot(volume);
-//     // list all files in the card with date and size
-//     //root.ls();
-
-//     SD.begin();   // (CS_pin) -> sd card initialization
-//     logfile = SD.open("lghtsnsr.log", FILE_WRITE);    // create log file on the card
-//     if (logfile){
-//       logfile.println("Starting log...");
-//       logfile.close();
-//       oled.print("LOG CREATED [OK]");
-//     }
-//     else
-//       oled.print("FILE ERROR [01]");
-    
-//     delay(2000);
-//     oled.clear();
-//     //lcd.noAutoscroll();
-//   }
-// }
-
+#if BUILD_WITH_SD_CARD
 void sdCardProgram()
 {
   // SD reader is connected to SPI pins (MISO/MOSI/SCK/CS, 5V pwr)
@@ -404,7 +320,7 @@ void sdCardProgram()
   oled.drawString(0, 2, "Card Type: ");
   oled.setCursor(11, 2);
   oled.print(cardType);
-  delay(900);
+  delay(1300);
   if (!volume.init(card)) {
     oled.drawString(0, 3, "No FAT partition");
     delay(3000);
@@ -424,44 +340,150 @@ void sdCardProgram()
     SD.begin(SPI_HALF_SPEED, SD_CHIP_SELECT_PIN);
   }
 }
+#endif
 
-void setup(){
+void communicationFunc(SensDataStorage* const pSensorsData, TimeDateStorage* const pCurrentTimeDate)
+{
+  if (swSerial.available())
+  {
+    // 0x0D, 0x0A - CR, LF
+    char readBuffer[BT_READBUFFER_SIZE] = {0};
+    char sendBuffer[BT_SENDBUFFER_SIZE] = {0};
+    int i = 0;
+    int j = 0;
+    int k = 0;
+
+    while (swSerial.available() && (i < BT_READBUFFER_SIZE - 1)) 
+    {
+      readBuffer[i] = swSerial.read();
+      i++;
+    }
+
+    // DEBUG print received to console
+    for (j = 0; j < i; j++)
+    {
+      Serial.print(readBuffer[j], HEX);
+      Serial.print(" ");
+    }
+
+    Serial.print("\n");
+    Serial.println(readBuffer);
+    Serial.print("Bytes received: ");
+    Serial.println(i);
+
+    // Flush the rest of the BT sw serial buffer if received more than BT_READBUFFER_SIZE
+    if (swSerial.available())
+    {
+      while (swSerial.available())
+      {
+        swSerial.read();
+        k++;
+      }
+      Serial.print(k);
+      Serial.print(" extra bytes dumped.\n");
+    }
+
+    oled.setCursor(13, 2);
+    oled.print("->");
+
+    // Time: 2021/02/06 16:29:43, Temperature: 26.9 C, Humidity: 13.8 %, Pressure: 744.43 mmHg, Ambient:  936
+    sprintf(sendBuffer
+    , "Time: %04d/%02d/%02d %02d:%02d:%02d, Temperature: %2d.%1d C, Humidity: %2d.%1d %%, Pressure: %3d.%2d mmHg, Ambient: %4d\n"
+    , pCurrentTimeDate->year, pCurrentTimeDate->mnth, pCurrentTimeDate->day
+    , pCurrentTimeDate->hrs, pCurrentTimeDate->min, pCurrentTimeDate->sec
+    , (int)pSensorsData->temperature, (int)(pSensorsData->temperature * 10) % 10
+    , (int)pSensorsData->humidity, (int)(pSensorsData->humidity * 10) % 10
+    , (int)pSensorsData->pressure, (int)(pSensorsData->pressure * 100) % 100
+    , pSensorsData->ambientLight
+    );
+    
+    swSerial.write(sendBuffer);
+
+    oled.setCursor(13, 2);
+    oled.print("  ");
+  }
+}
+
+/**
+ * Main Task funcion:
+ * 
+ * Call reading RTC/sensors + writing to log/dislpay every 10 seconds
+ * typical task execution time ~9 (8-12) ms (for IIC devices only)
+ */
+void mainTaskFunction()
+{
+  clockReadFunc(&currentTimeDate);
+  sensorReadFunc(&sensorsData);
+  clockDisplayFunc(&currentTimeDate);
+  sensorsDataLogFunc(&sensorsData, &currentTimeDate);
+}
+
+/**
+ * Communication Task funcion:
+ * 
+ * Check if there is a request arrived to the BT module, 
+ * perform appropriate response
+ */
+void communicationTaskFunction()
+{
+  communicationFunc(&sensorsData, &currentTimeDate);
+}
+
+/**
+ * Blink Separator Task funcion:
+ * 
+ * Flash hours-minutes separator every 0.5 sec
+ */
+void blinkSeparatorTaskFunction()
+{
+  blinkClockSeparators();
+}
+
+void setup()
+{
+  // Set up serial interfaces
   Wire.begin();
   Serial.begin(115200);
+  swSerial.begin(9600);                     // BT HC-06 module connected to pin 8, 9
   
+  // Set up OLED display
   oled.begin();
   oled.setPowerSave(0);
   oled.setFont(u8x8_font_chroma48medium8_r); // u8x8_font_chroma48medium8_r u8x8_font_px437wyse700a_2x2_r u8g2_font_courB12_tf 
   oled.setContrast(11);
 
+#if BUILD_WITH_SD_CARD
   sdCardProgram();
+#endif
+
+  // Set up sensors
   temp_humid.begin();   // init am2320
   bmp.begin();          // init bmp180
 
-  
   oled.clear();
   oled.setCursor(0, 0);
 
-  clockRead.onRun(clockReadTaskFunction);
-  clockDisp.onRun(clockDisplayTaskFunction);
-  sensorsRead.onRun(sensorReadTaskFunction);
-  sensorsDisp.onRun(sensorsLogTaskFunction);
+  // Configure tasks
+  mainTask.onRun(mainTaskFunction);
+  communicationTask.onRun(communicationTaskFunction);
+  blinkSeparatorTask.onRun(blinkSeparatorTaskFunction);
 
-  clockRead.setInterval(RTC_READ_TASK_PERIOD_MS);
-  clockDisp.setInterval(RTC_DISPLAY_TASK_PERIOD_MS);
-  sensorsRead.setInterval(SENSOR_READ_TASK_PERIOD_MS);
-  sensorsDisp.setInterval(SENSOR_DISPLAY_TASK_PERIOD_MS);
+  // Configure tasks periods
+  mainTask.setInterval(MAIN_TASK_PERIOD_MS);
+  communicationTask.setInterval(BLUETOOTH_TASK_PERIOD_MS);
+  blinkSeparatorTask.setInterval(BLINK_SEPARATOR_TASK_PERIOD_MS);
 
-
+#if BUILD_WITH_SD_CARD
+  // Add a timestamp to the log file
+  SdFile::dateTimeCallback(FAT_dateTime);
+#endif
 
   DateTime now = RTC.now();
   int dd = now.day();
   int hh = now.hour();
   int mm = now.minute();
 
-  // Add a timestamp to the log file
-  SdFile::dateTimeCallback(FAT_dateTime);
-
+#if BUILD_WITH_SD_CARD
   sprintf(GV_LogFileName, "wm%02d%02d%02d.txt", dd, hh, mm);
   oled.setCursor(0, 0);
   oled.print(GV_LogFileName);
@@ -471,7 +493,7 @@ void setup(){
   logWeatherMonitor = SD.open(GV_LogFileName, FILE_WRITE);
   if(logWeatherMonitor)
   {
-    logWeatherMonitor.print(F("--- Starting new log entry ---\n"));
+    logWeatherMonitor.print(F("--- Starting new log entry (non-concurrent version) ---\n"));
     // logWeatherMonitor.print(F("Time, Light_sensor_value, Active_time_(sec), Previous_state, Current_state, dynamicIlluminanceThr, FullTask(ms), SDlogTask(ms), 2xLcdTaskTimerVal(ms)\n"));
   }
   else
@@ -486,6 +508,7 @@ void setup(){
     delay(1000);
   }
   logWeatherMonitor.close();
+#endif
   
   /* uncomment to set the clock
    * and disable loop() content
@@ -497,6 +520,7 @@ void setup(){
   /******************************/
 }
 
+#if BUILD_WITH_SD_CARD
 /**
  * Callback function for SD File timestamp
  * (FAT_* macro's are a part of SdFat library, whic is wrapped by SD.h)
@@ -506,39 +530,62 @@ void FAT_dateTime(uint16_t* date, uint16_t* time) {
   *date = FAT_DATE(now.year(), now.month(), now.day());
   *time = FAT_TIME(now.hour(), now.minute(), now.second());
 }
+#endif
 
+void blinkClockSeparators()
+{
+  static bool flashSeparators = true;
+  char separator;
+
+  separator = flashSeparators ? ':' : ' ';
+
+  oled.setCursor(2, 0);
+  oled.print(separator);
+
+  flashSeparators = !flashSeparators;
+}
 
 /**
  * Main loop
  */
-void loop(){
-  
-  if (clockRead.shouldRun())
-    clockRead.run();
+void loop()
+{
+  if (mainTask.shouldRun())
+  {
+    mainTask.run();
+  }
 
-  if (clockDisp.shouldRun())
-    clockDisp.run();
+  if (blinkSeparatorTask.shouldRun())
+  {
+    blinkSeparatorTask.run();
+  }
 
-  if (sensorsRead.shouldRun())
-    sensorsRead.run();
-
-  if (sensorsDisp.shouldRun())
-    sensorsDisp.run();
+  if (communicationTask.shouldRun())
+  {
+    communicationTask.run();
+  }
 }
 
 //---------------------------
-// Sketch uses 27894 bytes (97%) of program storage space. Maximum is 28672 bytes.
-// Global variables use 1842 bytes (71%) of dynamic memory, leaving 718 bytes for local variables. Maximum is 2560 bytes.
-// Sketch uses 25286 bytes (88%) of program storage space. Maximum is 28672 bytes.                                                ---> No String type (no log serial)
-// Global variables use 1772 bytes (69%) of dynamic memory, leaving 788 bytes for local variables. Maximum is 2560 bytes.
-// Sketch uses 27862 bytes (97%) of program storage space. Maximum is 28672 bytes.
-// Global variables use 1786 bytes (69%) of dynamic memory, leaving 774 bytes for local variables. Maximum is 2560 bytes.
-// Sketch uses 27160 bytes (94%) of program storage space. Maximum is 28672 bytes.                                                ---> log string ->> buffer
-// Global variables use 1836 bytes (71%) of dynamic memory, leaving 724 bytes for local variables. Maximum is 2560 bytes.
-
-// Sketch uses 27880 bytes (97%) of program storage space. Maximum is 28672 bytes.                                                ---> add sd logging
-// Global variables use 1802 bytes (70%) of dynamic memory, leaving 758 bytes for local variables. Maximum is 2560 bytes.
-// Sketch uses 28112 bytes (98%) of program storage space. Maximum is 28672 bytes.
-// Global variables use 1828 bytes (71%) of dynamic memory, leaving 732 bytes for local variables. Maximum is 2560 bytes.
 // Sketch uses 28172 bytes (98%) of program storage space. Maximum is 28672 bytes.                                                ---> add sd file timestamp
 // Global variables use 1804 bytes (70%) of dynamic memory, leaving 756 bytes for local variables. Maximum is 2560 bytes.
+// Sketch uses 27854 bytes (97%) of program storage space. Maximum is 28672 bytes.
+// Global variables use 1747 bytes (68%) of dynamic memory, leaving 813 bytes for local variables. Maximum is 2560 bytes.
+// Sketch uses 27784 bytes (96%) of program storage space. Maximum is 28672 bytes.                                                ---> removed Thread; 70 bytes released
+// Global variables use 1726 bytes (67%) of dynamic memory, leaving 834 bytes for local variables. Maximum is 2560 bytes.
+// Sketch uses 24900 bytes (86%) of program storage space. Maximum is 28672 bytes.                                                ---> removed Adafruit libs: TempHumid and Bmp; 2884 bytes released
+// Global variables use 1648 bytes (64%) of dynamic memory, leaving 912 bytes for local variables. Maximum is 2560 bytes.
+// Sketch uses 23674 bytes (82%) of program storage space. Maximum is 28672 bytes.                                                ---> removed RTC; 1126 bytes released
+// Global variables use 1646 bytes (64%) of dynamic memory, leaving 914 bytes for local variables. Maximum is 2560 bytes.
+// Sketch uses 12928 bytes (45%) of program storage space. Maximum is 28672 bytes.                                                ---> removed SD and SPI; 10746 bytes released
+// Global variables use 837 bytes (32%) of dynamic memory, leaving 1723 bytes for local variables. Maximum is 2560 bytes.
+// Sketch uses 17328 bytes (60%) of program storage space. Maximum is 28672 bytes.                                                ---> all functionality without SD card. 
+// Global variables use 925 bytes (36%) of dynamic memory, leaving 1635 bytes for local variables. Maximum is 2560 bytes.
+// Sketch uses 27942 bytes (97%) of program storage space. Maximum is 28672 bytes.                                                ---> SD returned back
+// Global variables use 1752 bytes (68%) of dynamic memory, leaving 808 bytes for local variables. Maximum is 2560 bytes.
+// Sketch uses 18212 bytes (63%) of program storage space. Maximum is 28672 bytes.                                                ---> no SD, + SoftwareSerial
+// Global variables use 1022 bytes (39%) of dynamic memory, leaving 1538 bytes for local variables. Maximum is 2560 bytes.
+// Sketch uses 19466 bytes (67%) of program storage space. Maximum is 28672 bytes.                                                ---> add BT communication
+// Global variables use 1168 bytes (45%) of dynamic memory, leaving 1392 bytes for local variables. Maximum is 2560 bytes.
+// Sketch uses 20034 bytes (69%) of program storage space. Maximum is 28672 bytes.                                                ---> Thread returned back
+// Global variables use 1221 bytes (47%) of dynamic memory, leaving 1339 bytes for local variables. Maximum is 2560 bytes.
