@@ -37,15 +37,17 @@ not found AM2320, 92 >>> 0x5C ?
 #define RTC_DISPLAY_TASK_PERIOD_MS    (2030)
 #define SENSOR_READ_TASK_PERIOD_MS    (2095)
 #define SENSOR_DISPLAY_TASK_PERIOD_MS (3100)
-#define LOG_BUFFER_LEN                (106)
+#define LOG_BUFFER_LEN                (131)
 #define SD_LOG_FILE_NAME_LEN          (13)
 
 #define MAIN_TASK_PERIOD_MS             (10000)
 #define BLINK_SEPARATOR_TASK_PERIOD_MS  (500)
-#define BLUETOOTH_TASK_PERIOD_MS        (600)
+#define BLUETOOTH_TASK_PERIOD_MS        (900)
 
 #define BT_READBUFFER_SIZE              (11)
-#define BT_SENDBUFFER_SIZE              (105)
+#define BT_SENDBUFFER_SIZE              (130)
+#define BT_HC06_PWR_CONTROL_PIN         (11)              // relay control pin connected to Digital Pin 11
+#define BT_COMMUNICATION_TIMEOUT_SEC    (1800ul)          // Time (30 min) after that BT will be restarted if there were no successfull communication session with the server
 
 //AM2320 temp_humid;
 Adafruit_AM2320 temp_humid = Adafruit_AM2320();
@@ -85,8 +87,22 @@ typedef struct
   char  am2320error[20];  // "AM_ERR: CRC Failed" or "AM_ERR: OFFLINE"
 } SensDataStorage;
 
+typedef struct
+{
+  /* data */
+  int totalNrOfRestarts;
+  int successCounter;
+  int rxBufferOverrunCntr;
+} Statistics;
+
+
 static TimeDateStorage currentTimeDate = {0, 0, 0, 0, 0, 0, true, false, false};
 static SensDataStorage sensorsData = {0, 0, 0, 0};
+
+static long int   prevCommSessionTimeMs;
+static bool       btHc06_power_off = false;
+static Statistics btStats = {0, 0};
+
 
 #if BUILD_WITH_SD_CARD
 static char     GV_LogFileName[SD_LOG_FILE_NAME_LEN] = "wmddhhmm.txt";
@@ -211,13 +227,14 @@ void sensorsDataLogFunc(SensDataStorage* const pSensorsData, TimeDateStorage* co
   char logBuffer[LOG_BUFFER_LEN];
 
   sprintf(logBuffer
-    , "Time: %04d/%02d/%02d %02d:%02d:%02d, Temperature: %2d.%1d C, Humidity: %2d.%1d %%, Pressure: %3d.%02d mmHg, Ambient: %4d\n"
+    , "Time: %04d/%02d/%02d %02d:%02d:%02d, Temperature: %2d.%1d C, Humidity: %2d.%1d %%, Pressure: %3d.%02d mmHg, Ambient: %4d, STATS:%4x %4x %4x\n"
     , pCurrentTimeDate->year, pCurrentTimeDate->mnth, pCurrentTimeDate->day
     , pCurrentTimeDate->hrs, pCurrentTimeDate->min, pCurrentTimeDate->sec
     , (int)pSensorsData->temperature, (int)(pSensorsData->temperature * 10) % 10
     , (int)pSensorsData->humidity, (int)(pSensorsData->humidity * 10) % 10
     , (int)pSensorsData->pressure, (int)(pSensorsData->pressure * 100) % 100
     , pSensorsData->ambientLight
+    , btStats.successCounter, btStats.rxBufferOverrunCntr, btStats.totalNrOfRestarts
     );
   
   // String logString = String("Time: ") 
@@ -344,6 +361,10 @@ void sdCardProgram()
 
 void communicationFunc(SensDataStorage* const pSensorsData, TimeDateStorage* const pCurrentTimeDate)
 {
+  long int currentCommunicationTimeMs;
+
+  currentCommunicationTimeMs = millis();
+
   if (swSerial.available())
   {
     // 0x0D, 0x0A - CR, LF
@@ -381,26 +402,52 @@ void communicationFunc(SensDataStorage* const pSensorsData, TimeDateStorage* con
       }
       Serial.print(k);
       Serial.print(" extra bytes dumped.\n");
+
+      btStats.rxBufferOverrunCntr++;
     }
+
+    btStats.successCounter++;
 
     oled.setCursor(13, 2);
     oled.print("->");
 
-    // Time: 2021/02/06 16:29:43, Temperature: 26.9 C, Humidity: 13.8 %, Pressure: 744.43 mmHg, Ambient:  936
+    // Time: 2021/02/14 14:05:22, Temperature: 27.9 C, Humidity: 17.8 %, Pressure: 752.77 mmHg, Ambient:  742, STATS:   3    2    0
     sprintf(sendBuffer
-    , "Time: %04d/%02d/%02d %02d:%02d:%02d, Temperature: %2d.%1d C, Humidity: %2d.%1d %%, Pressure: %3d.%2d mmHg, Ambient: %4d\n"
+    , "Time: %04d/%02d/%02d %02d:%02d:%02d, Temperature: %2d.%1d C, Humidity: %2d.%1d %%, Pressure: %3d.%2d mmHg, Ambient: %4d, STATS:%4x %4x %4x\n"
     , pCurrentTimeDate->year, pCurrentTimeDate->mnth, pCurrentTimeDate->day
     , pCurrentTimeDate->hrs, pCurrentTimeDate->min, pCurrentTimeDate->sec
     , (int)pSensorsData->temperature, (int)(pSensorsData->temperature * 10) % 10
     , (int)pSensorsData->humidity, (int)(pSensorsData->humidity * 10) % 10
     , (int)pSensorsData->pressure, (int)(pSensorsData->pressure * 100) % 100
     , pSensorsData->ambientLight
+    , btStats.successCounter, btStats.rxBufferOverrunCntr, btStats.totalNrOfRestarts
     );
     
     swSerial.write(sendBuffer);
 
     oled.setCursor(13, 2);
     oled.print("  ");
+
+    // Reset last communication timer
+    prevCommSessionTimeMs = currentCommunicationTimeMs;
+  }
+
+  // Check if HC has been switched off -> switch it on
+  if (btHc06_power_off)
+  {
+    digitalWrite(BT_HC06_PWR_CONTROL_PIN, LOW);
+    btHc06_power_off = false;
+    Serial.println("===>          HC POWER ON          <===");
+  }
+
+  // Check for last communication timeout, power cycle HC-06 if TO reached
+  if (currentCommunicationTimeMs - prevCommSessionTimeMs > (BT_COMMUNICATION_TIMEOUT_SEC * 1000u))
+  {
+    digitalWrite(BT_HC06_PWR_CONTROL_PIN, HIGH);
+    prevCommSessionTimeMs = currentCommunicationTimeMs;
+    btHc06_power_off = true;
+    Serial.println("===> !!! HC RESTART, POWER OFF !!! <===");
+    btStats.totalNrOfRestarts++;
   }
 }
 
@@ -441,6 +488,10 @@ void blinkSeparatorTaskFunction()
 
 void setup()
 {
+  // Set pin mode for BT module reset control
+  pinMode(BT_HC06_PWR_CONTROL_PIN, OUTPUT);
+  prevCommSessionTimeMs = millis();
+  
   // Set up serial interfaces
   Wire.begin();
   Serial.begin(115200);
@@ -564,6 +615,12 @@ void loop()
   {
     communicationTask.run();
   }
+
+  // delay(2000);
+  // digitalWrite(BT_HC06_PWR_CONTROL_PIN, HIGH);
+  // delay(4000);
+  // digitalWrite(BT_HC06_PWR_CONTROL_PIN, LOW);
+
 }
 
 //---------------------------
