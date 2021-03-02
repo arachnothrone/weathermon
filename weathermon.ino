@@ -37,7 +37,7 @@ not found AM2320, 92 >>> 0x5C ?
 #define RTC_DISPLAY_TASK_PERIOD_MS    (2030)
 #define SENSOR_READ_TASK_PERIOD_MS    (2095)
 #define SENSOR_DISPLAY_TASK_PERIOD_MS (3100)
-#define LOG_BUFFER_LEN                (131)
+#define LOG_BUFFER_LEN                (145)
 #define SD_LOG_FILE_NAME_LEN          (13)
 
 #define MAIN_TASK_PERIOD_MS             (10000)
@@ -45,7 +45,7 @@ not found AM2320, 92 >>> 0x5C ?
 #define BLUETOOTH_TASK_PERIOD_MS        (900)
 
 #define BT_READBUFFER_SIZE              (11)
-#define BT_SENDBUFFER_SIZE              (130)
+#define BT_SENDBUFFER_SIZE              (144)
 #define BT_HC06_PWR_CONTROL_PIN         (11)              // relay control pin connected to Digital Pin 11
 #define BT_COMMUNICATION_TIMEOUT_SEC    (1800ul)          // Time (30 min) after that BT will be restarted if there were no successfull communication session with the server
 
@@ -85,6 +85,7 @@ typedef struct
   float pressure;       // mmHg
   int   ambientLight;   // 0 - 1010 (dark)
   char  am2320error[20];  // "AM_ERR: CRC Failed" or "AM_ERR: OFFLINE"
+  long  voltage;        // mV
 } SensDataStorage;
 
 typedef struct
@@ -109,6 +110,48 @@ static char     GV_LogFileName[SD_LOG_FILE_NAME_LEN] = "wmddhhmm.txt";
 static bool     GV_LogFileErrorIndicator = false;
 #endif
 
+/**
+ * Read Vcc in millivolts
+ * This function is taken from: 
+ * https://provideyourown.com/2012/secret-arduino-voltmeter-measure-battery-voltage/
+ */
+long readVcc() {
+  // Read 1.1V reference against AVcc
+  // set the reference to Vcc and the measurement to the internal 1.1V reference
+  #if defined(__AVR_ATmega32U4__) || defined(__AVR_ATmega1280__) || defined(__AVR_ATmega2560__)
+    ADMUX = _BV(REFS0) | _BV(MUX4) | _BV(MUX3) | _BV(MUX2) | _BV(MUX1);
+  #elif defined (__AVR_ATtiny24__) || defined(__AVR_ATtiny44__) || defined(__AVR_ATtiny84__)
+    ADMUX = _BV(MUX5) | _BV(MUX0);
+  #elif defined (__AVR_ATtiny25__) || defined(__AVR_ATtiny45__) || defined(__AVR_ATtiny85__)
+    ADMUX = _BV(MUX3) | _BV(MUX2);
+  #else
+    ADMUX = _BV(REFS0) | _BV(MUX3) | _BV(MUX2) | _BV(MUX1);
+  #endif  
+
+  delay(2); // Wait for Vref to settle
+  ADCSRA |= _BV(ADSC); // Start conversion
+  while (bit_is_set(ADCSRA,ADSC)); // measuring
+
+  uint8_t low  = ADCL; // must read ADCL first - it then locks ADCH  
+  uint8_t high = ADCH; // unlocks both
+
+  long result = (high<<8) | low;
+
+  //result = 1125300L / result; // Calculate Vcc (in mV); 1125300 = 1.1*1023*1000
+  // with correction for Arduino Micro, USB power from KBD (4.35V measured with Fluke): 
+  // internal1_1Ref = 1.1 * 4.35 / 5.11 -> 0.936399
+  // scale_constant = internal1_1Ref * 1023 * 1000 -> 957936.399
+  // result = 957936L / result;
+  
+  /**
+   * USB power from Hiper 12500:
+   * internal1_1Ref = 1.1 * 4.90 / 5.30 -> 0.9245283
+   * scale_constant = internal1_1Ref * 1023 * 1000 -> 945792.453
+   */
+  result = 1039099L / result;   // manually corrected
+
+  return result; // Vcc in millivolts
+}
 
 void clockReadFunc(TimeDateStorage* tds)
 {
@@ -213,6 +256,7 @@ void sensorReadFunc(SensDataStorage* pSensorsData)
   pSensorsData->humidity = temp_humid.readHumidity();
   pSensorsData->pressure = bmp.readPressure() * PAMMHG;
   pSensorsData->ambientLight = analogRead(A0);
+  pSensorsData->voltage = readVcc();
 } 
 
 /**
@@ -227,13 +271,14 @@ void sensorsDataLogFunc(SensDataStorage* const pSensorsData, TimeDateStorage* co
   char logBuffer[LOG_BUFFER_LEN];
 
   sprintf(logBuffer
-    , "Time: %04d/%02d/%02d %02d:%02d:%02d, Temperature: %2d.%1d C, Humidity: %2d.%1d %%, Pressure: %3d.%02d mmHg, Ambient: %4d, STATS:%4x %4x %4x\n"
+    , "Time: %04d/%02d/%02d %02d:%02d:%02d, Temperature: %2d.%1d C, Humidity: %2d.%1d %%, Pressure: %3d.%02d mmHg, Ambient: %4d, Vcc: %4d mV, STATS:%4x %4x %4x\n"
     , pCurrentTimeDate->year, pCurrentTimeDate->mnth, pCurrentTimeDate->day
     , pCurrentTimeDate->hrs, pCurrentTimeDate->min, pCurrentTimeDate->sec
     , (int)pSensorsData->temperature, (int)(pSensorsData->temperature * 10) % 10
     , (int)pSensorsData->humidity, (int)(pSensorsData->humidity * 10) % 10
     , (int)pSensorsData->pressure, (int)(pSensorsData->pressure * 100) % 100
     , pSensorsData->ambientLight
+    , pSensorsData->voltage
     , btStats.successCounter, btStats.rxBufferOverrunCntr, btStats.totalNrOfRestarts
     );
   
@@ -257,6 +302,11 @@ void sensorsDataLogFunc(SensDataStorage* const pSensorsData, TimeDateStorage* co
   oled.print("Temp: ");
   oled.print(int(pSensorsData->temperature));
   oled.print(" C  ");
+  oled.print(int(pSensorsData->voltage / 1000.0));
+  oled.print(".");
+  int fract_part = (int)(pSensorsData->voltage / 10.0) % 100;
+  if (fract_part < 10) {oled.print("0");}
+  oled.print(fract_part);
   oled.setCursor(0, 2);
   oled.print("Humd: ");
   oled.print(int(pSensorsData->humidity));
@@ -413,13 +463,14 @@ void communicationFunc(SensDataStorage* const pSensorsData, TimeDateStorage* con
 
     // Time: 2021/02/14 14:05:22, Temperature: 27.9 C, Humidity: 17.8 %, Pressure: 752.77 mmHg, Ambient:  742, STATS:   3    2    0
     sprintf(sendBuffer
-    , "Time: %04d/%02d/%02d %02d:%02d:%02d, Temperature: %2d.%1d C, Humidity: %2d.%1d %%, Pressure: %3d.%2d mmHg, Ambient: %4d, STATS:%4x %4x %4x\n"
+    , "Time: %04d/%02d/%02d %02d:%02d:%02d, Temperature: %2d.%1d C, Humidity: %2d.%1d %%, Pressure: %3d.%2d mmHg, Ambient: %4d, Vcc: %4d mV, STATS:%4x %4x %4x\n"
     , pCurrentTimeDate->year, pCurrentTimeDate->mnth, pCurrentTimeDate->day
     , pCurrentTimeDate->hrs, pCurrentTimeDate->min, pCurrentTimeDate->sec
     , (int)pSensorsData->temperature, (int)(pSensorsData->temperature * 10) % 10
     , (int)pSensorsData->humidity, (int)(pSensorsData->humidity * 10) % 10
     , (int)pSensorsData->pressure, (int)(pSensorsData->pressure * 100) % 100
     , pSensorsData->ambientLight
+    , pSensorsData->voltage
     , btStats.successCounter, btStats.rxBufferOverrunCntr, btStats.totalNrOfRestarts
     );
     
@@ -490,6 +541,7 @@ void setup()
 {
   // Set pin mode for BT module reset control
   pinMode(BT_HC06_PWR_CONTROL_PIN, OUTPUT);
+  pinMode(A0, INPUT);                       // Analog input from CdS cell
   prevCommSessionTimeMs = millis();
   
   // Set up serial interfaces
