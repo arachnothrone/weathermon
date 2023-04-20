@@ -698,3 +698,6 @@ void loop()
 // Global variables use 1168 bytes (45%) of dynamic memory, leaving 1392 bytes for local variables. Maximum is 2560 bytes.
 // Sketch uses 20034 bytes (69%) of program storage space. Maximum is 28672 bytes.                                                ---> Thread returned back
 // Global variables use 1221 bytes (47%) of dynamic memory, leaving 1339 bytes for local variables. Maximum is 2560 bytes.
+// *** New Node_02 ***
+// Sketch uses 20814 bytes (72%) of program storage space. Maximum is 28672 bytes.                                                ---> Running on Node_02 Pro Micro
+// Global variables use 1382 bytes (53%) of dynamic memory, leaving 1178 bytes for local variables. Maximum is 2560 bytes.
