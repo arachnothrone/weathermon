@@ -6,7 +6,6 @@
 #include <iostream>
 #include <fstream>
 #include <string>
-// #include <ctime>
 #include <vector>
 #include <exception>
 
@@ -15,10 +14,23 @@
 #include <unistd.h>
 #include <errno.h>
 
+#include <cstring>
+#include <algorithm>
 
-// define constants
-#define SERIAL_PORT "/dev/cu.usbmodem14601"
+/* Define constants */
+#define SERIAL_PORT_DEFAULT_PATTERN "/dev/cu.usbmodem*"             // macos
 #define BAUD_RATE 9600
+
+#if defined(OS_TYPE)
+#if (OS_TYPE) == 2
+#define SERIAL_PORT_PATTERN "/dev/serial/by-path/*usb*"             // raspbian
+#else
+#define SERIAL_PORT_PATTERN SERIAL_PORT_DEFAULT_PATTERN
+#endif
+#else
+#define SERIAL_PORT_PATTERN SERIAL_PORT_DEFAULT_PATTERN
+#define OS_TYPE 99
+#endif
 
 std::vector<std::string> executeCommand(const char* cmd);
 
@@ -46,7 +58,7 @@ class WeatherData {
 std::string getSerialPortName() {
     std::string result = "";
 
-    std::vector<std::string> cmdOutput = executeCommand("ls /dev/tty.usbmodem*");
+    std::vector<std::string> cmdOutput = executeCommand(std::string("ls ").append(SERIAL_PORT_PATTERN).c_str());
     // for raspi: /dev/serial/by-path/platform-20980000.usb-usb-0\:1\:1.0 --> /dev/serial/by-path/*usb*
 
 
@@ -85,6 +97,7 @@ std::vector<std::string> executeCommand(const char* cmd) {
 
 // Main function
 int main(int argc, char *argv[]) {
+    printf("OS_TYPE: %d\n", (int)OS_TYPE);
     std::string serialPort;
     if (argc > 1) {
         serialPort = argv[1];
