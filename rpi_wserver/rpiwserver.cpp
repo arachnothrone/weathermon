@@ -97,6 +97,9 @@ std::vector<std::string> executeCommand(const char* cmd) {
 
 // Main function
 int main(int argc, char *argv[]) {
+    FILE *wstationLogFile;
+    wstationLogFile = fopen("wstation.log", "a+");
+
     printf("OS_TYPE: %d\n", (int)OS_TYPE);
     std::string serialPort;
     if (argc > 1) {
@@ -174,6 +177,9 @@ int main(int argc, char *argv[]) {
                 if (num_bytes > 0) {
                     // print received data to stdout
                     std::cout << read_buf << std::endl;
+                    // write received data to log file
+                    fprintf(wstationLogFile, "%s", read_buf);
+                    fflush(wstationLogFile);
                 } else {
                     std::cout << "read() error" << std::endl;
                 }
@@ -192,6 +198,7 @@ int main(int argc, char *argv[]) {
 
     // Close serial port
     close(serial_fd);
+    fclose(wstationLogFile);
 
     return 0;
 }
