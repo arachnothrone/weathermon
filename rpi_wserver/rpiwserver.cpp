@@ -16,6 +16,7 @@
 
 #include <cstring>
 #include <algorithm>
+#include <regex>
 
 /* Define constants */
 #define SERIAL_PORT_DEFAULT_PATTERN "/dev/cu.usbmodem*"             // macos
@@ -38,7 +39,7 @@ void readDataFromSerialPort() {
 
 }
 
-// Time: 2023/04/20 17:25:54, Temperature: 27.9 C, Humidity: 22.1 %, Pressure: 748.26 mmHg, Ambient:  237, Vcc: 4206 mV
+// Time: 2023/04/29 19:58:47, Temperature: 25.6 C, Humidity: 32.5 %, Pressure: 735.06 mmHg, Ambient:  825, Vcc: 4744 mV, STATS:   0    1    0
 class WeatherData {
   public:
     WeatherData();
@@ -94,6 +95,47 @@ std::vector<std::string> executeCommand(const char* cmd) {
     pclose(pipe);
     return output;
 }
+
+std::string parseDataToJsonRegex(char *data) {
+    std::string dataStr(data);
+    std::string jsonStr = "{";
+
+    std::regex timePattern("Time: ([0-9]{4}/[0-9]{2}/[0-9]{2} [0-9]{2}:[0-9]{2}:[0-9]{2}), ");
+    std::regex temperaturePattern("Temperature: ([0-9]+.[0-9]+) C, ");
+    std::regex humidityPattern("Humidity: ([0-9]+.[0-9]+) %, ");
+    std::regex pressurePattern("Pressure: ([0-9]+.[0-9]+) mmHg, ");
+    std::regex ambientPattern("Ambient:\\s{1,}([0-9]+), ");
+    std::regex vccPattern("Vcc: ([0-9]+) mV");
+    std::regex statsPattern("STATS:(\\s{1,}[0-9]{1,4})");
+    //std::regex statsPattern("STATS:(\\s{1,}[0-9]{1,4}\\s{1,}[0-9]{1,4}\\s{1,}[0-9]{1,4})");
+
+    std::smatch matches;
+
+    if (std::regex_search(dataStr, matches, timePattern)) {
+        jsonStr.append("\"Time\": \"").append(matches[1]).append("\", ");
+    }
+    if (std::regex_search(dataStr, matches, temperaturePattern)) {
+        jsonStr.append("\"Temperature\": \"").append(matches[1]).append("\", ");
+    }
+    if (std::regex_search(dataStr, matches, humidityPattern)) {
+        jsonStr.append("\"Humidity\": \"").append(matches[1]).append("\", ");
+    }
+    if (std::regex_search(dataStr, matches, pressurePattern)) {
+        jsonStr.append("\"Pressure\": \"").append(matches[1]).append("\", ");
+    }
+    if (std::regex_search(dataStr, matches, ambientPattern)) {
+        jsonStr.append("\"Ambient\": \"").append(matches[1]).append("\", ");
+    }
+    if (std::regex_search(dataStr, matches, vccPattern)) {
+        jsonStr.append("\"Vcc\": \"").append(matches[1]).append("\"}");
+    }
+    if (std::regex_search(dataStr, matches, statsPattern)) {
+        jsonStr.append("\"STATS\": \"").append(matches[1]).append("\"}");
+    }
+
+    return jsonStr;
+}
+
 
 // Main function
 int main(int argc, char *argv[]) {
@@ -155,7 +197,7 @@ int main(int argc, char *argv[]) {
     /* Set up select() timeout */
     struct timeval timeout = {.tv_sec = 3, .tv_usec = 0};
 
-    while (i < 10) {
+    while (i < 1000) {
 
         memset(&read_buf, '\0', sizeof(read_buf));
 
@@ -178,7 +220,8 @@ int main(int argc, char *argv[]) {
                     // print received data to stdout
                     std::cout << read_buf << std::endl;
                     // write received data to log file
-                    fprintf(wstationLogFile, "%s", read_buf);
+                    //fprintf(wstationLogFile, "%s", read_buf);
+                    fprintf(wstationLogFile, "%s\n", parseDataToJsonRegex(read_buf).c_str());
                     fflush(wstationLogFile);
                 } else {
                     std::cout << "read() error" << std::endl;
