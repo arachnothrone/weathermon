@@ -23,7 +23,9 @@
 
 /* Define constants */
 #define SERIAL_PORT_DEFAULT_PATTERN "/dev/cu.usbmodem*"             // macos
-#define BAUD_RATE 9600
+#define BAUD_RATE                   9600
+#define SERIAL_PORT_INIT_TIMEOUT_S     6
+#define SELECT_TIMEOUT_S            3
 
 #if defined(OS_TYPE)
 #if (OS_TYPE) == 2
@@ -151,33 +153,11 @@ std::string parseDataToJsonRegex(char *data) {
     return jsonStr;
 }
 
+int initializeSerialPort(const std::string* const serialPort, int* const serial_fd) {
+    *serial_fd = open((*serialPort).c_str(), O_RDWR | O_NOCTTY);
 
-// Main function
-int main(int argc, char *argv[]) {
-    int serial_fd = 0;
-    FILE *wstationLogFile;
-    wstationLogFile = fopen("wstation.log", "a+");
-
-    signal(SIGINT, signalHandler);
-    signal(SIGTERM, signalHandler);
-
-    printf("OS_TYPE: %d\n", (int)OS_TYPE);
-    std::string serialPort;
-    if (argc > 1) {
-        serialPort = argv[1];
-    } else {
-        serialPort = getSerialPortName();
-        std::cout << "Connecting to serial port: " << serialPort << std::endl;
-    }
-
-    
-
-    try {
-        std::cout << "port name: " << serialPort << ", cstr: " << serialPort.c_str() << std::endl;
-        serial_fd = open(serialPort.c_str(), O_RDWR | O_NOCTTY);
-
-        if (serial_fd > 0) {
-            std::cerr << "Serial port fd: " << serial_fd << std::endl;
+        if (*serial_fd > 0) {
+            std::cerr << "Serial port fd: " << *serial_fd << std::endl;
             struct termios tty;
             memset(&tty, 0, sizeof tty);
             cfsetospeed(&tty, B9600);               // Output speed 9600 baud
@@ -190,17 +170,48 @@ int main(int argc, char *argv[]) {
             tty.c_cflag &= ~CRTSCTS;                // No flow control
             tty.c_cc[VMIN] = 138;                   // Minimum number of characters to read
             tty.c_cc[VTIME] = 5;                    // Time to wait for data (*0.1 seconds)
-            tcsetattr(serial_fd, TCSANOW, &tty);    // Set port attributes (TCSANOW = make changes immediately)
+            tcsetattr(*serial_fd, TCSANOW, &tty);   // Set port attributes (TCSANOW = make changes immediately)
         } else {
             char errno_buffer[256];
             strerror_r(errno, errno_buffer, 256);
             std::cerr << "Error opening serial port, errno: " << errno << ", " << errno_buffer << std::endl;
             return 1;
         }
-    } catch (const std::exception& e) {
-        std::cerr << e.what() << std::endl;
-        return 1;
+    return 0;
+}
+
+
+/* Main function */
+int main(int argc, char *argv[]) {
+    int serial_fd = 0;
+    std::string serialPort = "";
+    FILE *wstationLogFile;
+    
+    wstationLogFile = fopen("wstation.log", "a+");
+
+    signal(SIGINT, signalHandler);
+    signal(SIGTERM, signalHandler);
+
+    printf("OS_TYPE: %d\n", (int)OS_TYPE);
+    
+    if (argc > 1) {
+        serialPort = argv[1];
+    } else {
+        serialPort = getSerialPortName();
+        std::cout << "Connecting to serial port: " << serialPort << std::endl;
     }
+
+    int initResult = 1;
+    while ((initResult = initializeSerialPort(&serialPort, &serial_fd)) != 0 && keepRunning) {
+        std::cout << "Serial port initialization failed, retrying in " << SERIAL_PORT_INIT_TIMEOUT_S << " sec ..." << std::endl;
+        sleep(SERIAL_PORT_INIT_TIMEOUT_S);
+
+        if (serialPort == "") {serialPort = getSerialPortName();}
+    }
+
+    if (initResult != 0) {return 1;}
+
+    std::cout << "Initialized, port name: " << serialPort << ", cstr: " << serialPort.c_str() << ", fd: " << serial_fd << std::endl;
 
     char read_buf[199];
     int num_ready_fds = 0;
@@ -213,8 +224,9 @@ int main(int argc, char *argv[]) {
     FD_SET(serial_fd, &read_fds);
 
     /* Set up select() timeout */
-    struct timeval timeout = {.tv_sec = 3, .tv_usec = 0};
+    struct timeval timeout = {.tv_sec = SELECT_TIMEOUT_S, .tv_usec = 0};
 
+    /* Server loop */
     while (keepRunning) {
 
         memset(&read_buf, '\0', sizeof(read_buf));
@@ -226,12 +238,12 @@ int main(int argc, char *argv[]) {
             std::cout 
             << ", sfd=" << serial_fd 
             << ", numfds=" << num_ready_fds
-            << ", rfds=" << *read_fds.fds_bits
+            << ", rfds.fds_bits=" << *read_fds.fds_bits
             << std::endl;
         } else if (num_ready_fds == 0) {
-            // Select timeout
+            /* Select timeout */
         } else {
-            // Check ready descriptors
+            /* Check ready descriptors */
             if (FD_ISSET(serial_fd, &read_fds)) {                
                 int num_bytes = read(serial_fd, &read_buf, sizeof(read_buf));
                 if (num_bytes > 0) {
@@ -249,20 +261,33 @@ int main(int argc, char *argv[]) {
                     fflush(wstationLogFile);
                 
                 } else {
-                    std::cout << "read() error" << std::endl;
+                    /* Read error, reinitialize serial connection */
+                    std::cout << "read() error, num_bytes="<< num_bytes << std::endl;
+                    std::cout << "Re-initializing serial port." << std::endl;
+                    
+                    close(serial_fd);
+                    sleep(SERIAL_PORT_INIT_TIMEOUT_S);
+
+                    while (initializeSerialPort(&serialPort, &serial_fd) != 0 && keepRunning) {
+                        std::cout << "Re-initializing failed, retrying..." << std::endl;
+                        sleep(SERIAL_PORT_INIT_TIMEOUT_S);
+                    }
+
+                    FD_ZERO(&read_fds);
+                    FD_SET(serial_fd, &read_fds);
                 }
             } else {
-                std::cout << "select() error: unknown fd" << std::endl;
+                std::cout << "select() error: unknown fd(" << serial_fd << ")." << std::endl;
             }
         }
 
-        timeout.tv_sec = 3;
+        timeout.tv_sec = SELECT_TIMEOUT_S;
         timeout.tv_usec = 0;
 
         FD_SET(serial_fd, &read_fds);
     }
 
-    // Close serial port
+    /* Close serial port and file */
     std::cout << "Closing serial/logfile descriptors." << std::endl;
     close(serial_fd);
     fclose(wstationLogFile);
