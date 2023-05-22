@@ -79,17 +79,16 @@ std::string getSerialPortName() {
     // for raspi: /dev/serial/by-path/platform-20980000.usb-usb-0\:1\:1.0 --> /dev/serial/by-path/*usb*
 
 
-    std::cout << "List of usb serialports found:" << std::endl;
+    std::cout << "List of usb serial ports found:" << std::endl;
     for (auto& line : cmdOutput) {
         std::cout << line << std::endl;
     }
 
+    /* Use the first found port from the list */
     if (cmdOutput.size() > 0) {
         auto newStrEnd = std::remove(cmdOutput[0].begin(), cmdOutput[0].end(), '\n');
         result = std::string(cmdOutput[0].begin(), newStrEnd);
     }
-
-    std::cout << ">>> reading usb port: " << result << std::endl;
     
     return result;
 }
@@ -153,30 +152,31 @@ std::string parseDataToJsonRegex(char *data) {
     return jsonStr;
 }
 
-int initializeSerialPort(const std::string* const serialPort, int* const serial_fd) {
-    *serial_fd = open((*serialPort).c_str(), O_RDWR | O_NOCTTY);
+int initializeSerialPort(const std::string* const pSerialPort, int* const pSerialFd) {
+    /* Open port */
+    *pSerialFd = open((*pSerialPort).c_str(), O_RDWR | O_NOCTTY);
 
-        if (*serial_fd > 0) {
-            std::cerr << "Serial port fd: " << *serial_fd << std::endl;
-            struct termios tty;
-            memset(&tty, 0, sizeof tty);
-            cfsetospeed(&tty, B9600);               // Output speed 9600 baud
-            cfsetispeed(&tty, B9600);               // Input speed 9600 baud
-            tty.c_cflag |= (CLOCAL | CREAD);        // Ignore modem controls
-            tty.c_cflag &= ~CSIZE;                  // Mask the character size bits
-            tty.c_cflag |= CS8;                     // 8-bit chars
-            tty.c_cflag &= ~PARENB;                 // NNo parity
-            tty.c_cflag &= ~CSTOPB;                 // 1 stop bit
-            tty.c_cflag &= ~CRTSCTS;                // No flow control
-            tty.c_cc[VMIN] = 138;                   // Minimum number of characters to read
-            tty.c_cc[VTIME] = 5;                    // Time to wait for data (*0.1 seconds)
-            tcsetattr(*serial_fd, TCSANOW, &tty);   // Set port attributes (TCSANOW = make changes immediately)
-        } else {
-            char errno_buffer[256];
-            strerror_r(errno, errno_buffer, 256);
-            std::cerr << "Error opening serial port, errno: " << errno << ", " << errno_buffer << std::endl;
-            return 1;
-        }
+    if (*pSerialFd > 0) {
+        struct termios tty;
+        memset(&tty, 0, sizeof tty);
+        cfsetospeed(&tty, B9600);               // Output speed 9600 baud
+        cfsetispeed(&tty, B9600);               // Input speed 9600 baud
+        tty.c_cflag |= (CLOCAL | CREAD);        // Ignore modem controls
+        tty.c_cflag &= ~CSIZE;                  // Mask the character size bits
+        tty.c_cflag |= CS8;                     // 8-bit chars
+        tty.c_cflag &= ~PARENB;                 // NNo parity
+        tty.c_cflag &= ~CSTOPB;                 // 1 stop bit
+        tty.c_cflag &= ~CRTSCTS;                // No flow control
+        tty.c_cc[VMIN] = 138;                   // Minimum number of characters to read
+        tty.c_cc[VTIME] = 5;                    // Time to wait for data (*0.1 seconds)
+        tcsetattr(*pSerialFd, TCSANOW, &tty);   // Set port attributes (TCSANOW = make changes immediately)
+        std::cout << "Serial port initialized, port name: " << *pSerialPort << ", port fd: " << *pSerialFd << std::endl;
+    } else {
+        char errno_buffer[256];
+        strerror_r(errno, errno_buffer, 256);
+        std::cout << "Error opening serial port, errno: " << errno << ", " << errno_buffer << std::endl;
+        return 1;
+    }
     return 0;
 }
 
@@ -198,7 +198,7 @@ int main(int argc, char *argv[]) {
         serialPort = argv[1];
     } else {
         serialPort = getSerialPortName();
-        std::cout << "Connecting to serial port: " << serialPort << std::endl;
+        std::cout << "Initializing serial port: " << serialPort << "..." << std::endl;
     }
 
     int initResult = 1;
@@ -211,7 +211,7 @@ int main(int argc, char *argv[]) {
 
     if (initResult != 0) {return 1;}
 
-    std::cout << "Initialized, port name: " << serialPort << ", cstr: " << serialPort.c_str() << ", fd: " << serial_fd << std::endl;
+    std::cout << "Initialization done, port name: " << serialPort << ", fd: " << serial_fd << std::endl;
 
     char read_buf[199];
     int num_ready_fds = 0;
@@ -248,7 +248,7 @@ int main(int argc, char *argv[]) {
                 int num_bytes = read(serial_fd, &read_buf, sizeof(read_buf));
                 if (num_bytes > 0) {
                     // Print received data to stdout
-                    std::cout << "bytes: " << num_bytes << "; " << read_buf;
+                    //std::cout << "bytes: " << num_bytes << "; " << read_buf;
 
                     // for (auto& c : read_buf) {
                     //     std::cout << std::hex << (int)c << " ";
@@ -256,13 +256,13 @@ int main(int argc, char *argv[]) {
                     // std::cout << std::endl;
 
                     // Write received data to log file
-                    //fprintf(wstationLogFile, "%s", read_buf);
-                    fprintf(wstationLogFile, "%s\n", parseDataToJsonRegex(read_buf).c_str());
+                    fprintf(wstationLogFile, "%s", read_buf);
+                    //fprintf(wstationLogFile, "%s\n", parseDataToJsonRegex(read_buf).c_str());
                     fflush(wstationLogFile);
                 
                 } else {
                     /* Read error, reinitialize serial connection */
-                    std::cout << "read() error, num_bytes="<< num_bytes << std::endl;
+                    std::cout << "Port read error, num_bytes="<< num_bytes << std::endl;
                     std::cout << "Re-initializing serial port." << std::endl;
                     
                     close(serial_fd);
