@@ -21,6 +21,8 @@
 #include <signal.h>
 #include <stdatomic.h>
 
+#include "comm.h"
+
 /* Define constants */
 #define SERIAL_PORT_DEFAULT_PATTERN "/dev/cu.usbmodem*"             // macos
 #define BAUD_RATE                   9600
@@ -186,6 +188,8 @@ int main(int argc, char *argv[]) {
     int serial_fd = 0;
     std::string serialPort = "";
     FILE *wstationLogFile;
+
+    SocketConnection phoneClient(RX_PORT);
     
     wstationLogFile = fopen("wstation.log", "a+");
 
@@ -222,6 +226,7 @@ int main(int argc, char *argv[]) {
 
     /* Add socket fd to monitoring */
     FD_SET(serial_fd, &read_fds);
+    FD_SET(phoneClient.GetSocketFd(), &read_fds);
 
     /* Set up select() timeout */
     struct timeval timeout = {.tv_sec = SELECT_TIMEOUT_S, .tv_usec = 0};
@@ -276,6 +281,12 @@ int main(int argc, char *argv[]) {
                     FD_ZERO(&read_fds);
                     FD_SET(serial_fd, &read_fds);
                 }
+            } else if (FD_ISSET(phoneClient.GetSocketFd(), &read_fds)) {
+                std::cout << "Phone client data received." << std::endl;
+                auto data = phoneClient.Recv();
+                std::cout << "Phone data received bytes: " << data.size() << ", data: " << data << std::endl;
+                std::string response = "DUMMY server response.";
+                phoneClient.Send(response, response.size());
             } else {
                 std::cout << "select() error: unknown fd(" << serial_fd << ")." << std::endl;
             }
@@ -285,11 +296,13 @@ int main(int argc, char *argv[]) {
         timeout.tv_usec = 0;
 
         FD_SET(serial_fd, &read_fds);
+        FD_SET(phoneClient.GetSocketFd(), &read_fds);
     }
 
-    /* Close serial port and file */
-    std::cout << "Closing serial/logfile descriptors." << std::endl;
+    /* Close serial port, socket and file */
+    std::cout << "Closing all descriptors." << std::endl;
     close(serial_fd);
+    close(phoneClient.GetSocketFd());
     fclose(wstationLogFile);
 
     return 0;
