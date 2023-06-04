@@ -22,12 +22,15 @@
 #include <stdatomic.h>
 
 #include "comm.h"
+#include "datetime.h"
 
 /* Define constants */
 #define SERIAL_PORT_DEFAULT_PATTERN "/dev/cu.usbmodem*"             // macos
 #define BAUD_RATE                   9600
-#define SERIAL_PORT_INIT_TIMEOUT_S     6
+#define SERIAL_PORT_INIT_TIMEOUT_S  6
 #define SELECT_TIMEOUT_S            3
+#define CMD_GET_DATA1               1                               // Arguments: "YYYY-MM-DD HH:MM:SS"
+
 
 #if defined(OS_TYPE)
 #if (OS_TYPE) == 2
@@ -183,6 +186,8 @@ int initializeSerialPort(const std::string* const pSerialPort, int* const pSeria
 }
 
 
+
+
 /* Main function */
 int main(int argc, char *argv[]) {
     int serial_fd = 0;
@@ -285,6 +290,9 @@ int main(int argc, char *argv[]) {
                 std::cout << "Phone client data received." << std::endl;
                 auto data = phoneClient.Recv();
                 std::cout << "Phone data received bytes: " << data.size() << ", data: " << data << std::endl;
+                Date date = ParseDate(data);
+                date.Print();
+
                 std::string response = "DUMMY server response.";
                 phoneClient.Send(response, response.size());
             } else {
