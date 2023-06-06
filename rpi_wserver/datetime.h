@@ -30,46 +30,63 @@ struct Year {
     }
 };
 
+struct Hour {
+    int value;
+    explicit Hour(int new_value) {
+        value = new_value;
+    }
+};
+
+struct Minute {
+    int value;
+    explicit Minute(int new_value) {
+        value = new_value;
+    }
+};
+
+struct Second {
+    int value;
+    explicit Second(int new_value) {
+        value = new_value;
+    }
+};
+
+
 class Date {
 public:
     Date(const Day new_day, const Month new_month, const Year new_year);
-    // {
-    //     y = new_year.value;
-    //     if (new_month.value > 12 || new_month.value < 1) {
-    //         throw std::logic_error("Invalid month: " + std::to_string(new_month.value));
-    //     }
-    //     m = new_month.value;
-    //     if (new_day.value > 31 || new_day.value < 1) {
-    //         throw std::logic_error("Invalid day: " + std::to_string(new_day.value));
-    //     }
-    //     d = new_day.value;
-    // }
 
     int GetYear() const;
-    // {
-    //     return y;
-    // }
     int GetMonth() const; 
-    // {
-    //     return m;
-    // }
     int GetDay() const;
-    // {
-    //     return d;
-    // }
 
     void Print() const;
-    // {
-    //     std::cout << y << "/" << m << "/" << d << std::endl;
-    // }
+
 private:
     int d;
     int m;
     int y;
 };
 
+class Time {
+public:
+    Time(const Hour new_hour, const Minute new_minute, const Second new_second);
+
+    int GetHour() const;
+    int GetMinute() const; 
+    int GetSecond() const;
+
+    void Print() const;
+
+private:
+    int h;
+    int m;
+    int s;
+};
+
 bool operator<(const Date& lhs, const Date& rhs);
 
 bool operator==(const Date& lhs, const Date& rhs);
 
-Date ParseDate(const std::string& rawdate);
+Date ParseDate(const std::string& rawdate, std::string& tail);
+Time ParseTime(const std::string& rawtime);

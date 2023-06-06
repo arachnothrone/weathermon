@@ -47,14 +47,20 @@ void Date::Print() const
         << std::endl;
 }
 
-Date ParseDate(const std::string& rawdate) {
+Date ParseDate(const std::string& rawdate, std::string& tail) {
     std::istringstream iss(rawdate);
     int iyear, imonth, iday;
     std::string year, month, day;
     if (getline(iss, year, '-')) {
         std::cout << "==> y_" << year << "_" << std::endl;
         if (getline(iss, month, '-')) {
-            getline(iss, day);
+            if (getline(iss, day, ' ')) {
+                getline(iss, tail);
+            } else if (getline(iss, day)) {
+                tail = "";
+            } else {
+                throw std::runtime_error("Wrong date format: " + rawdate);
+            }
         } else {
             throw std::runtime_error("Wrong date format: " + rawdate);
         }
@@ -81,4 +87,73 @@ Date ParseDate(const std::string& rawdate) {
     }
     
     return Date(Day(iday), Month(imonth), Year(iyear));
+}
+
+Time::Time(const Hour new_hour, const Minute new_minute, const Second new_second) {
+    h = new_hour.value;
+    if (new_minute.value > 59 || new_minute.value < 0) {
+        throw std::logic_error("Invalid minutes: " + std::to_string(new_minute.value));
+    }
+    m = new_minute.value;
+    if (new_second.value > 59 || new_second.value < 0) {
+        throw std::logic_error("Invalid seconds: " + std::to_string(new_second.value));
+    }
+    s = new_second.value;
+}
+
+int Time::GetHour() const {
+    return h;
+}
+
+int Time::GetMinute() const {
+    return m;
+}
+
+int Time::GetSecond() const {
+    return s;
+}
+
+void Time::Print() const {
+    std::cout 
+        << std::setfill('0') << std::setw(2) << h << ":" 
+        << std::setfill('0') << std::setw(2) << m << ":" 
+        << std::setfill('0') << std::setw(2) << s 
+        << std::endl;
+}
+
+Time ParseTime(const std::string& rawtime) {
+    std::istringstream iss(rawtime);
+    int ihour, iminute, isecond;
+    std::string hour, minute, second;
+    if (getline(iss, hour, ':')) {
+        if (getline(iss, minute, ':')) {
+            getline(iss, second);
+        } else {
+            throw std::runtime_error("Wrong time format: " + rawtime);
+        }
+    } else {
+        throw std::runtime_error("Wrong time format: " + rawtime);
+    }
+    
+    // iss >> hour >> minute >> second;
+    std::istringstream shour(hour);
+    shour >> ihour;
+    std::istringstream sminute(minute);
+    sminute >> iminute;
+    std::istringstream ssecond(second);
+    ssecond >> isecond;
+
+    if (ihour > 23 || ihour < 0) {
+        throw std::runtime_error("Hour value is invalid: " + std::to_string(ihour));
+    }
+
+    if (iminute > 59 || iminute < 0) {
+        throw std::runtime_error("Minute value is invalid: " + std::to_string(iminute));
+    }
+
+    if (isecond > 59 || isecond < 0) {
+        throw std::runtime_error("Second value is invalid: " + std::to_string(isecond));
+    }
+    
+    return Time(Hour(ihour), Minute(iminute), Second(isecond));
 }

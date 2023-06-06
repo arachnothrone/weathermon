@@ -290,8 +290,21 @@ int main(int argc, char *argv[]) {
                 std::cout << "Phone client data received." << std::endl;
                 auto data = phoneClient.Recv();
                 std::cout << "Phone data received bytes: " << data.size() << ", data: " << data << std::endl;
-                Date date = ParseDate(data);
-                date.Print();
+                
+                std::string dataTail;
+                try {
+                    Date date = ParseDate(data, dataTail);
+                    date.Print();
+                } catch(const std::exception& e) {
+                    std::cerr << e.what() << '\n';
+                }
+
+                try {
+                    Time time = ParseTime(dataTail);
+                    time.Print();
+                } catch(const std::exception& e) {
+                    std::cerr << e.what() << '\n';
+                }
 
                 std::string response = "DUMMY server response.";
                 phoneClient.Send(response, response.size());
