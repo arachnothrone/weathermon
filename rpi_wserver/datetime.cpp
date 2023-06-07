@@ -51,9 +51,9 @@ Date ParseDate(const std::string& rawdate, std::string& tail) {
     std::istringstream iss(rawdate);
     int iyear, imonth, iday;
     std::string year, month, day;
-    if (getline(iss, year, '-')) {
+    if (getline(iss, year, '/')) {
         std::cout << "==> y_" << year << "_" << std::endl;
-        if (getline(iss, month, '-')) {
+        if (getline(iss, month, '/')) {
             if (getline(iss, day, ' ')) {
                 getline(iss, tail);
             } else if (getline(iss, day)) {

@@ -44,6 +44,7 @@
 #endif
 
 std::vector<std::string> executeCommand(const char* cmd);
+std::string getLineFromLogFile(std::string timestamp);
 
 static volatile atomic_int keepRunning = 1;
 
@@ -295,6 +296,9 @@ int main(int argc, char *argv[]) {
                 try {
                     Date date = ParseDate(data, dataTail);
                     date.Print();
+                    auto foundline = getLineFromLogFile(data);
+                    std::cout << "Found line: " << foundline << std::endl;
+
                 } catch(const std::exception& e) {
                     std::cerr << e.what() << '\n';
                 }
@@ -327,4 +331,41 @@ int main(int argc, char *argv[]) {
     fclose(wstationLogFile);
 
     return 0;
+}
+
+
+std::string getLineFromLogFile(std::string timestamp) {
+    std::string line;
+    std::ifstream wstationLogFile("wstation.log");
+    if (wstationLogFile.is_open()) {
+        while (getline(wstationLogFile, line)) {
+            if (line.find(timestamp) != std::string::npos) {
+                return line;
+            }
+        }
+        wstationLogFile.close();
+    }
+    return "";
+}
+
+std::string getLinesFromLogFile(std::string timestamp1, std::string timestamp2) {
+    std::string line;
+    std::string lines;
+    std::ifstream wstationLogFile("wstation.log");
+    if (wstationLogFile.is_open()) {
+        while (getline(wstationLogFile, line)) {
+            if (line.find(timestamp1) != std::string::npos) {
+                lines += line + "\n";
+                while (getline(wstationLogFile, line)) {
+                    if (line.find(timestamp2) != std::string::npos) {
+                        lines += line + "\n";
+                        return lines;
+                    }
+                    lines += line + "\n";
+                }
+            }
+        }
+        wstationLogFile.close();
+    }
+    return "";
 }
