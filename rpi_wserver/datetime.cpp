@@ -16,6 +16,23 @@ bool operator==(const Date& lhs, const Date& rhs) {
         lhs.GetDay() == rhs.GetDay();
 }
 
+bool operator<(const Time& lhs, const Time& rhs) {
+    if (lhs.GetHour() == rhs.GetHour()) {
+        if (lhs.GetMinute() == rhs.GetMinute()) {
+            return lhs.GetSecond() < rhs.GetSecond();
+        }
+        return lhs.GetMinute() < rhs.GetMinute();
+    }
+    return lhs.GetHour() < rhs.GetHour();
+}
+
+bool operator==(const Time& lhs, const Time& rhs) {
+    return lhs.GetHour() == rhs.GetHour() &&
+        lhs.GetMinute() == rhs.GetMinute() &&
+        lhs.GetSecond() == rhs.GetSecond();
+}
+
+
 Date::Date(const Day new_day, const Month new_month, const Year new_year) {
     y = new_year.value;
     if (new_month.value > 12 || new_month.value < 1) {

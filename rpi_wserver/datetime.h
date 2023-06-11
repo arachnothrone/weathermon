@@ -85,8 +85,10 @@ private:
 };
 
 bool operator<(const Date& lhs, const Date& rhs);
-
 bool operator==(const Date& lhs, const Date& rhs);
+
+bool operator<(const Time& lhs, const Time& rhs);
+bool operator==(const Time& lhs, const Time& rhs);
 
 Date ParseDate(const std::string& rawdate, std::string& tail);
 Time ParseTime(const std::string& rawtime);
