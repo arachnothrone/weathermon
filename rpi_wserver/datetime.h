@@ -60,6 +60,8 @@ public:
     int GetMonth() const; 
     int GetDay() const;
 
+    std::string ToString() const;
+
     void Print() const;
 
 private:
@@ -75,6 +77,8 @@ public:
     int GetHour() const;
     int GetMinute() const; 
     int GetSecond() const;
+
+    std::string ToString() const;
 
     void Print() const;
 

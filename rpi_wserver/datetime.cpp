@@ -55,10 +55,18 @@ int Date::GetDay() const {
     return d;
 }
 
+std::string Date::ToString() const {
+    std::stringstream ss;
+    ss  << std::setfill('0') << std::setw(4) << y << "/" 
+        << std::setfill('0') << std::setw(2) << m << "/" 
+        << std::setfill('0') << std::setw(2) << d;
+    return ss.str();
+}
+
 void Date::Print() const 
 {
     std::cout 
-        << y << "/" 
+        << std::setfill('0') << std::setw(4) << y << "/" 
         << std::setfill('0') << std::setw(2) << m << "/" 
         << std::setfill('0') << std::setw(2) << d 
         << std::endl;
@@ -128,6 +136,14 @@ int Time::GetMinute() const {
 
 int Time::GetSecond() const {
     return s;
+}
+
+std::string Time::ToString() const {
+    std::stringstream ss;
+    ss  << std::setfill('0') << std::setw(2) << h << ":" 
+        << std::setfill('0') << std::setw(2) << m << ":" 
+        << std::setfill('0') << std::setw(2) << s;
+    return ss.str();
 }
 
 void Time::Print() const {

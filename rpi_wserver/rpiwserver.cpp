@@ -43,8 +43,11 @@
 #define OS_TYPE 99
 #endif
 
+#define RECORD_LENGTH 138 + 1                                      // 138 chars + \n
+
 std::vector<std::string> executeCommand(const char* cmd);
 std::string getLineFromLogFile(std::string timestamp);
+std::string getLineFromLogFile2(const Date* refDate, const Time* refTime);
 
 static volatile atomic_int keepRunning = 1;
 
@@ -62,6 +65,8 @@ void signalHandler(int signo) {
 }
 
 // Time: 2023/04/29 19:58:47, Temperature: 25.6 C, Humidity: 32.5 %, Pressure: 735.06 mmHg, Ambient:  825, Vcc: 4744 mV, STATS:   0    1    0
+// line len = 138
+
 class WeatherData {
   public:
     WeatherData();
@@ -294,21 +299,24 @@ int main(int argc, char *argv[]) {
                 
                 std::string dataTail;
                 try {
-                    Date date = ParseDate(data, dataTail);
-                    date.Print();
-                    auto foundline = getLineFromLogFile(data);
-                    std::cout << "Found line: " << foundline << std::endl;
+                    Date referenceDate = ParseDate(data, dataTail);
+                    referenceDate.Print();
 
+                    try {
+                        Time referenceTime = ParseTime(dataTail);
+                        referenceTime.Print();
+
+                        auto foundline = getLineFromLogFile2(&referenceDate, &referenceTime);
+                        std::cout << "Found line: " << foundline << std::endl;
+
+                    } catch(const std::exception& e) {
+                        std::cerr << e.what() << '\n';
+                    }
                 } catch(const std::exception& e) {
                     std::cerr << e.what() << '\n';
                 }
 
-                try {
-                    Time time = ParseTime(dataTail);
-                    time.Print();
-                } catch(const std::exception& e) {
-                    std::cerr << e.what() << '\n';
-                }
+                
 
                 std::string response = "DUMMY server response.";
                 phoneClient.Send(response, response.size());
@@ -344,6 +352,131 @@ std::string getLineFromLogFile(std::string timestamp) {
             }
         }
         wstationLogFile.close();
+    }
+    return "";
+}
+
+std::string getLineFromLogFile2(const Date* refDate, const Time* refTime) {
+    std::string line, dateTimeBuffer;
+    std::ifstream wstationLogFile("wstation.log", std::ios::in);
+    if (wstationLogFile.is_open()) {
+        std::streampos begin, end, currentPos, startPos, endPos;
+        // find the size of the file
+        begin = wstationLogFile.tellg();
+        wstationLogFile.seekg(0, std::ios::end);
+        end = wstationLogFile.tellg();
+        std::cout << "File size: " << (end-begin) << ", beg=" << begin << ", end=" << end << ", mid=" << (end-begin)/2 << std::endl;
+
+        int numRecords = end / RECORD_LENGTH;
+        int iterations = 1;
+        bool endSearch = false;
+
+        currentPos = numRecords / 2;
+        startPos = begin;
+        endPos = end / RECORD_LENGTH;
+
+        while (!endSearch) {
+            // Set read position in the middle of the file and read next line
+            wstationLogFile.seekg(currentPos * RECORD_LENGTH, std::ios::beg);
+            getline(wstationLogFile, line);
+            std::cout << "Iteration: " << iterations 
+                        << ", startPos=" << startPos
+                        << ", currentPos=" << currentPos
+                        << ", endPos=" << endPos
+                        << ", Line in the middle: " << line << std::endl;
+            
+            // find the timestamp in the line
+            std::size_t found = line.find(refDate->ToString());
+            
+            if (found != std::string::npos) {
+                Date lineDate = ParseDate(line, dateTimeBuffer);
+                
+                if (lineDate == *refDate) {
+                    /*
+                    // timestamp is found, check if the time is before or after the line
+                    std::string lineTime = line.substr(TIMESTAMP_LENGTH + 1, TIMESTAMP_LENGTH);
+                    Time lineTime = ParseTime(dateTimeBuffer);
+                    std::cout << "Line time: " << lineTime << std::endl;
+                    
+                    if (lineTime.compare(refTime->ToString()) < 0) {
+                        // time is after the line, search in the second half of the file
+                        startPos = currentPos;
+                        currentPos = (endPos - currentPos) / 2;
+                    } else if (lineTime.compare(refTime->ToString()) > 0) {
+                        // time is before the line, search in the first half of the file
+                        endPos = currentPos;
+                        currentPos = (currentPos - startPos) / 2;
+                    } else {
+                        // time is found, return the line
+                        return line;
+                    }*/
+                    endSearch = true;
+                } else if (lineDate < *refDate) {
+                    // timestamp is after the line, search in the second half of the file
+                    startPos = currentPos;
+                    currentPos = (endPos - currentPos) / 2;
+                } else {
+                    // timestamp is before the line, search in the first half of the file
+                    endPos = currentPos;
+                    currentPos = (currentPos - startPos) / 2;
+                }
+            } else {
+                // // if timestamp is not found, check if the timestamp is before or after the line
+                // std::string lineTimestamp = line.substr(0, TIMESTAMP_LENGTH);
+                // std::cout << "Line timestamp: " << lineTimestamp << std::endl;
+                // if (lineTimestamp.compare(timestamp) < 0) {
+                //     // timestamp is after the line, search in the second half of the file
+                //     begin = wstationLogFile.tellg();
+                // } else {
+                //     // timestamp is before the line, search in the first half of the file
+                //     end = wstationLogFile.tellg();
+                // }
+            }
+
+            iterations++;
+
+            if (startPos == endPos || iterations > numRecords) {
+                endSearch = true;
+            }
+        }
+
+
+        // while (begin < end) {
+        //     std::streampos mid = begin + (end - begin) / 2;
+        //     wstationLogFile.seekg(mid);
+        //     std::getline(wstationLogFile, line);
+        //     std::cout << "Line in the middle: " << line << std::endl;
+        //     if (line.find(timestamp) != std::string::npos) {
+        //         return line;
+        //     } else if (line.compare(timestamp) < 0) {
+        //         begin = mid + 1;
+        //     } else {
+        //         end = mid;
+        //     }
+        //}
+        
+        
+        
+        
+        // // set read position in the middle of the file and read next line
+        // wstationLogFile.seekg((end-begin)/2, std::ios::beg);
+        // getline(wstationLogFile, line);
+        // std::cout << "Line in the middle: " << line << std::endl;
+        
+        // // find the timestamp in the line
+        // std::size_t found = line.find(timestamp);
+        // if (found != std::string::npos) {
+        //     return line;
+        // }
+
+
+        // while (getline(wstationLogFile, line)) {
+        //     if (line.find(timestamp) != std::string::npos) {
+        //         return line;
+        //     }
+        // }
+        wstationLogFile.close();
+        return line;
     }
     return "";
 }
