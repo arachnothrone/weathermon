@@ -43,7 +43,8 @@
 #define OS_TYPE 99
 #endif
 
-#define RECORD_LENGTH 138 + 1                                      // 138 chars + \n
+#define RECORD_LENGTH (138 + 1)                                     // 138 chars + \n
+#define TIMESTAMP_LENGTH 19                                         // YYYY/MM/DD HH:MM:SS
 
 std::vector<std::string> executeCommand(const char* cmd);
 std::string getLineFromLogFile(std::string timestamp);
@@ -375,6 +376,8 @@ std::string getLineFromLogFile2(const Date* refDate, const Time* refTime) {
         startPos = begin;
         endPos = end / RECORD_LENGTH;
 
+        wstationLogFile.seekg (0, wstationLogFile.beg);
+
         while (!endSearch) {
             // Set read position in the middle of the file and read next line
             wstationLogFile.seekg(currentPos * RECORD_LENGTH, std::ios::beg);
@@ -382,6 +385,7 @@ std::string getLineFromLogFile2(const Date* refDate, const Time* refTime) {
             std::cout << "Iteration: " << iterations 
                         << ", startPos=" << startPos
                         << ", currentPos=" << currentPos
+                        << "(abs=" << currentPos * RECORD_LENGTH << ")"
                         << ", endPos=" << endPos
                         << ", Line in the middle: " << line << std::endl;
             
@@ -389,7 +393,7 @@ std::string getLineFromLogFile2(const Date* refDate, const Time* refTime) {
             std::size_t found = line.find(refDate->ToString());
             
             if (found != std::string::npos) {
-                Date lineDate = ParseDate(line, dateTimeBuffer);
+                Date lineDate = ParseDate(line.substr(found, TIMESTAMP_LENGTH), dateTimeBuffer);
                 
                 if (lineDate == *refDate) {
                     /*
@@ -410,6 +414,7 @@ std::string getLineFromLogFile2(const Date* refDate, const Time* refTime) {
                         // time is found, return the line
                         return line;
                     }*/
+                    std::cout << "----------> FOUND!!!" << std::endl;
                     endSearch = true;
                 } else if (lineDate < *refDate) {
                     // timestamp is after the line, search in the second half of the file
