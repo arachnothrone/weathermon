@@ -5,7 +5,7 @@
 
 #include <iostream>
 #include <fstream>
-#include <string>
+//#include <string>
 #include <vector>
 #include <exception>
 
@@ -21,6 +21,7 @@
 #include <signal.h>
 #include <stdatomic.h>
 
+#include "rpiwserver.h"
 #include "comm.h"
 #include "datetime.h"
 
@@ -49,6 +50,7 @@
 std::vector<std::string> executeCommand(const char* cmd);
 std::string getLineFromLogFile(std::string timestamp);
 std::string getLineFromLogFile2(const Date* refDate, const Time* refTime);
+std::string string_to_hex(const std::string& input);
 
 static volatile atomic_int keepRunning = 1;
 
@@ -67,6 +69,7 @@ void signalHandler(int signo) {
 
 // Time: 2023/04/29 19:58:47, Temperature: 25.6 C, Humidity: 32.5 %, Pressure: 735.06 mmHg, Ambient:  825, Vcc: 4744 mV, STATS:   0    1    0
 // line len = 138
+// Time: 2023/04/29 19:58:47 -> (Time: \d{4}/\d{2}/\d{2}\s\d{2}:\d{2}:\d{2})
 
 class WeatherData {
   public:
@@ -192,8 +195,45 @@ int initializeSerialPort(const std::string* const pSerialPort, int* const pSeria
     return 0;
 }
 
+ArduinoData::ArduinoData(const char* const data) {
+    std::string dataStr(data);
+    std::smatch matches;
+    std::regex timePattern("Time: (\\d{4}/\\d{2}/\\d{2}\\s\\d{2}:\\d{2}:\\d{2})");  // (Time: \d{4}/\d{2}/\d{2}\s\d{2}:\d{2}:\d{2})
+    
+    if (std::regex_search(dataStr, matches, timePattern)) {
+        if (dataStr.length() == RECORD_LENGTH) {
+            /* Timestamp found and data length is correct */
+            _dataString = dataStr;
+        } else {
+            /* Timestamp found but data length is incorrect */
+            _dataString = std::string("TiMe: ").append(matches[1]) + std::string(RECORD_LENGTH - 19 - 6 - 1, '.') + std::string("\n");
+        }
+    } else {
+        /* No timestamp, ignore */
+        _dataString = "";
+    }
+}
 
+ArduinoData::~ArduinoData() {}
 
+std::string ArduinoData::GetString() const {
+    return _dataString;
+}
+
+std::string string_to_hex(const std::string& input) {
+    static const char* const lut = "0123456789ABCDEF";
+    size_t len = input.length();
+
+    std::string output;
+    output.reserve(2 * len);
+    for (size_t i = 0; i < len; ++i)
+    {
+        const unsigned char c = input[i];
+        output.push_back(lut[c >> 4]);
+        output.push_back(lut[c & 15]);
+    }
+    return output;
+}
 
 /* Main function */
 int main(int argc, char *argv[]) {
@@ -272,11 +312,19 @@ int main(int argc, char *argv[]) {
                     // }
                     // std::cout << std::endl;
 
+                    // std::string newstr = std::string(read_buf).substr(0, num_bytes - 2) + "some more stuff";
+                    // std::string newstr = std::string(read_buf).substr(0, num_bytes - 20);
+
+                    ArduinoData receivedData(read_buf);
+
                     // Write received data to log file
-                    fprintf(wstationLogFile, "%s", read_buf);
-                    //fprintf(wstationLogFile, "%s\n", parseDataToJsonRegex(read_buf).c_str());
-                    fflush(wstationLogFile);
-                
+                    //fprintf(wstationLogFile, "%s", read_buf);
+                    if (receivedData.GetString() != std::string("")) {
+                        fprintf(wstationLogFile, "%s", receivedData.GetString().c_str());
+                        //fprintf(wstationLogFile, "%s\n", parseDataToJsonRegex(read_buf).c_str());
+                        fflush(wstationLogFile);
+                    }
+
                 } else {
                     /* Read error, reinitialize serial connection */
                     std::cout << "Port read error, num_bytes="<< num_bytes << std::endl;

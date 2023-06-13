@@ -17,12 +17,14 @@ struct Day {
         value = new_value;
     }
 };
+
 struct Month {
     int value;
     explicit Month(int new_value) {
         value = new_value;
     }
 };
+
 struct Year {
     int value;
     explicit Year(int new_value) {
