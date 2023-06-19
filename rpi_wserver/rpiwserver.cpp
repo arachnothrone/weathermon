@@ -51,6 +51,8 @@ std::vector<std::string> executeCommand(const char* cmd);
 std::string getLineFromLogFile(std::string timestamp);
 std::string getLineFromLogFile2(const Date* refDate, const Time* refTime);
 std::string string_to_hex(const std::string& input);
+bool containsDate(const std::string& line);
+std::string getDate(const std::string& line);
 
 static volatile atomic_int keepRunning = 1;
 
@@ -430,18 +432,26 @@ std::string getLineFromLogFile2(const Date* refDate, const Time* refTime) {
             // Set read position in the middle of the file and read next line
             wstationLogFile.seekg(currentPos * RECORD_LENGTH, std::ios::beg);
             getline(wstationLogFile, line);
-            std::cout << "Iteration: " << iterations 
+            
+            std::string tsDateInLine = getDate(line);
+            std::cout << "Itr: " << iterations 
                         << ", startPos=" << startPos
                         << ", currentPos=" << currentPos
                         << "(abs=" << currentPos * RECORD_LENGTH << ")"
                         << ", endPos=" << endPos
+                        << ", searching for: " << refDate->ToString()
+                        << ", tsDateInLine=" << tsDateInLine
                         << ", Line in the middle: " << line << std::endl;
             
             // find the timestamp in the line
-            std::size_t found = line.find(refDate->ToString());
+            //std::size_t found = line.find(refDate->ToString());
             
-            if (found != std::string::npos) {
-                Date lineDate = ParseDate(line.substr(found, TIMESTAMP_LENGTH), dateTimeBuffer);
+
+            if (tsDateInLine != "") { //found != std::string::npos
+                //std::size_t found = line.find(refDate->ToString());
+                
+                //Date lineDate = ParseDate(line.substr(found, TIMESTAMP_LENGTH), dateTimeBuffer);
+                Date lineDate = ParseDate(tsDateInLine, dateTimeBuffer);
                 
                 if (lineDate == *refDate) {
                     /*
@@ -467,11 +477,13 @@ std::string getLineFromLogFile2(const Date* refDate, const Time* refTime) {
                 } else if (lineDate < *refDate) {
                     // timestamp is after the line, search in the second half of the file
                     startPos = currentPos;
-                    currentPos = (endPos - currentPos) / 2;
+                    currentPos = currentPos + (endPos - currentPos) / 2;
+                    std::cout << "----------> AFTER!!!" << std::endl;
                 } else {
                     // timestamp is before the line, search in the first half of the file
                     endPos = currentPos;
                     currentPos = (currentPos - startPos) / 2;
+                    std::cout << "----------> BEFORE!!!" << std::endl;
                 }
             } else {
                 // // if timestamp is not found, check if the timestamp is before or after the line
@@ -484,6 +496,8 @@ std::string getLineFromLogFile2(const Date* refDate, const Time* refTime) {
                 //     // timestamp is before the line, search in the first half of the file
                 //     end = wstationLogFile.tellg();
                 // }
+
+                /* Search in the next line */
             }
 
             iterations++;
@@ -553,5 +567,29 @@ std::string getLinesFromLogFile(std::string timestamp1, std::string timestamp2) 
         }
         wstationLogFile.close();
     }
+    return "";
+}
+
+bool containsDate(const std::string& line)
+{
+    std::smatch matches;
+    std::regex datePattern("Time: (\\d{4}/\\d{2}/\\d{2})");  // (Time: \d{4}/\d{2}/\d{2}\s\d{2}:\d{2}:\d{2})
+    
+    if (std::regex_search(line, matches, datePattern)) {
+        return true;
+    }
+
+    return false;
+}
+
+std::string getDate(const std::string& line)
+{
+    std::smatch matches;
+    std::regex datePattern("Time: (\\d{4}/\\d{2}/\\d{2})");  // (Time: \d{4}/\d{2}/\d{2}\s\d{2}:\d{2}:\d{2})
+    
+    if (std::regex_search(line, matches, datePattern)) {
+        return matches[1];
+    }
+
     return "";
 }
