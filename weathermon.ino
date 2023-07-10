@@ -31,6 +31,7 @@ not found AM2320, 92 >>> 0x5C ?
 #include "DS3231.h"   // RTC
 #include <U8x8lib.h>
 #include <SoftwareSerial.h>
+#include <USBAPI.h>
 
 #define PAMMHG                        (0.00750062)
 #define RTC_READ_TASK_PERIOD_MS       (1000)

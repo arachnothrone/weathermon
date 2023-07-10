@@ -26,10 +26,10 @@ bool operator<(const Time& lhs, const Time& rhs) {
     return lhs.GetHour() < rhs.GetHour();
 }
 
+/* Compare only hours and minutes, will be only performing search with minutes precision */
 bool operator==(const Time& lhs, const Time& rhs) {
     return lhs.GetHour() == rhs.GetHour() &&
-        lhs.GetMinute() == rhs.GetMinute() &&
-        lhs.GetSecond() == rhs.GetSecond();
+        lhs.GetMinute() == rhs.GetMinute();
 }
 
 
@@ -77,7 +77,6 @@ Date ParseDate(const std::string& rawdate, std::string& tail) {
     int iyear, imonth, iday;
     std::string year, month, day;
     if (getline(iss, year, '/')) {
-        std::cout << "==> y_" << year << "_" << std::endl;
         if (getline(iss, month, '/')) {
             if (getline(iss, day, ' ')) {
                 getline(iss, tail);
@@ -101,7 +100,7 @@ Date ParseDate(const std::string& rawdate, std::string& tail) {
     std::istringstream sday(day);
     sday >> iday;
 
-    std::cout << "Y=" << iyear << " M=" << imonth << " D=" << iday << std::endl;
+    // std::cout << "Y=" << iyear << " M=" << imonth << " D=" << iday << std::endl;
     
     if (imonth > 12 || imonth < 1) {
         throw std::runtime_error("Month value is invalid: " + std::to_string(imonth));

@@ -53,6 +53,7 @@ std::string getLineFromLogFile2(const Date* refDate, const Time* refTime);
 std::string string_to_hex(const std::string& input);
 bool containsDate(const std::string& line);
 std::string getDate(const std::string& line);
+std::string getTime(const std::string& line);
 
 static volatile atomic_int keepRunning = 1;
 
@@ -307,7 +308,7 @@ int main(int argc, char *argv[]) {
                 int num_bytes = read(serial_fd, &read_buf, sizeof(read_buf));
                 if (num_bytes > 0) {
                     // Print received data to stdout
-                    //std::cout << "bytes: " << num_bytes << "; " << read_buf;
+                    // std::cout << "bytes: " << num_bytes << "; " << read_buf;
 
                     // for (auto& c : read_buf) {
                     //     std::cout << std::hex << (int)c << " ";
@@ -434,6 +435,7 @@ std::string getLineFromLogFile2(const Date* refDate, const Time* refTime) {
             getline(wstationLogFile, line);
             
             std::string tsDateInLine = getDate(line);
+            std::string tsTimeInLine = getTime(line);
             std::cout << "Itr: " << iterations 
                         << ", startPos=" << startPos
                         << ", currentPos=" << currentPos
@@ -441,19 +443,21 @@ std::string getLineFromLogFile2(const Date* refDate, const Time* refTime) {
                         << ", endPos=" << endPos
                         << ", searching for: " << refDate->ToString()
                         << ", tsDateInLine=" << tsDateInLine
+                        << ", tsTimeInLine=" << tsTimeInLine
                         << ", Line in the middle: " << line << std::endl;
             
             // find the timestamp in the line
             //std::size_t found = line.find(refDate->ToString());
             
 
-            if (tsDateInLine != "") { //found != std::string::npos
+            if (tsDateInLine != "" && tsTimeInLine != "") { //found != std::string::npos
                 //std::size_t found = line.find(refDate->ToString());
                 
                 //Date lineDate = ParseDate(line.substr(found, TIMESTAMP_LENGTH), dateTimeBuffer);
                 Date lineDate = ParseDate(tsDateInLine, dateTimeBuffer);
+                Time lineTime = ParseTime(tsTimeInLine);
                 
-                if (lineDate == *refDate) {
+                if (lineDate == *refDate && lineTime == *refTime) {
                     /*
                     // timestamp is found, check if the time is before or after the line
                     std::string lineTime = line.substr(TIMESTAMP_LENGTH + 1, TIMESTAMP_LENGTH);
@@ -474,16 +478,16 @@ std::string getLineFromLogFile2(const Date* refDate, const Time* refTime) {
                     }*/
                     std::cout << "----------> FOUND!!!" << std::endl;
                     endSearch = true;
-                } else if (lineDate < *refDate) {
+                } else if (lineDate < *refDate && lineTime < *refTime) {
                     // timestamp is after the line, search in the second half of the file
                     startPos = currentPos;
                     currentPos = currentPos + (endPos - currentPos) / 2;
-                    std::cout << "----------> AFTER!!!" << std::endl;
+                    std::cout << "----------> AFTER!!!" << "lineTime[" << lineTime.ToString() << "] < refTime[" << refTime->ToString() << "] = " << (lineTime < *refTime) << std::endl;
                 } else {
                     // timestamp is before the line, search in the first half of the file
                     endPos = currentPos;
                     currentPos = (currentPos - startPos) / 2;
-                    std::cout << "----------> BEFORE!!!" << std::endl;
+                    std::cout << "----------> BEFORE!!!" << "lineTime[" << lineTime.ToString() << "] > refTime[" << refTime->ToString() << "] = " << (*refTime < lineTime) << std::endl;
                 }
             } else {
                 // // if timestamp is not found, check if the timestamp is before or after the line
@@ -585,10 +589,22 @@ bool containsDate(const std::string& line)
 std::string getDate(const std::string& line)
 {
     std::smatch matches;
-    std::regex datePattern("Time: (\\d{4}/\\d{2}/\\d{2})");  // (Time: \d{4}/\d{2}/\d{2}\s\d{2}:\d{2}:\d{2})
+    std::regex datePattern("Time: (\\d{4}/\\d{2}/\\d{2})\\s(\\d{2}:\\d{2}:\\d{2})");  // (Time: \d{4}/\d{2}/\d{2}\s\d{2}:\d{2}:\d{2})
     
     if (std::regex_search(line, matches, datePattern)) {
         return matches[1];
+    }
+
+    return "";
+}
+
+std::string getTime(const std::string& line)
+{
+    std::smatch matches;
+    std::regex timePattern("Time: (\\d{4}/\\d{2}/\\d{2})\\s(\\d{2}:\\d{2}:\\d{2})");
+    
+    if (std::regex_search(line, matches, timePattern)) {
+        return matches[2];
     }
 
     return "";
