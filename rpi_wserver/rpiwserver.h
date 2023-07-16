@@ -2,6 +2,9 @@
 
 #include <string>
 
+/* Search direction */
+#define FORWARD 1
+#define BACKWARD 2
 
 class ArduinoData {
 public:

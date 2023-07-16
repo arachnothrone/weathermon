@@ -7,6 +7,7 @@
 #include <fstream>
 //#include <string>
 #include <vector>
+#include <tuple>
 #include <exception>
 
 #include <termios.h>
@@ -46,6 +47,7 @@
 
 #define RECORD_LENGTH (138 + 1)                                     // 138 chars + \n
 #define TIMESTAMP_LENGTH 19                                         // YYYY/MM/DD HH:MM:SS
+#define DATE_SEARCH_STEP 10                                         // search step in days
 
 std::vector<std::string> executeCommand(const char* cmd);
 std::string getLineFromLogFile(std::string timestamp);
@@ -550,6 +552,97 @@ std::string getLineFromLogFile2(const Date* refDate, const Time* refTime) {
         return line;
     }
     return "";
+}
+
+std::streampos findBoundary(std::ifstream &file, const Date &refDate, bool direction, std::streampos intervalStart, std::streampos intervalEnd)
+{
+    ;
+}
+
+std::tuple<std::streampos, std::streampos> getDateRangeFromLogFile(std::ifstream &file, const Date &refDate)
+{
+    std::string line, dateTimeBuffer;
+    std::streampos begin, end, currentPos, startPos, endPos;
+    // find the size of the file
+    begin = file.tellg();
+    file.seekg(0, std::ios::end);
+    end = file.tellg();
+    std::cout << "File size: " << (end-begin) << ", beg=" << begin << ", end=" << end << ", mid=" << (end-begin)/2 << std::endl;
+
+    int numRecords = end / RECORD_LENGTH;
+    int iterations = 1;
+    bool endSearch = false;
+
+    currentPos = numRecords / 2;
+    startPos = begin;
+    endPos = end / RECORD_LENGTH;
+
+    file.seekg (0, file.beg);
+
+    while (!endSearch)
+    {
+        // Set read position in the middle of the file and read next line
+        file.seekg(currentPos * RECORD_LENGTH, std::ios::beg);
+        getline(file, line);
+        
+        std::string tsDateInLine = getDate(line);
+        std::string tsTimeInLine = getTime(line);
+        std::cout << "Itr: " << iterations 
+                    << ", startPos=" << startPos
+                    << ", currentPos=" << currentPos
+                    << "(abs=" << currentPos * RECORD_LENGTH << ")"
+                    << ", endPos=" << endPos
+                    << ", searching for: " << refDate.ToString()
+                    << ", tsDateInLine=" << tsDateInLine
+                    << ", tsTimeInLine=" << tsTimeInLine
+                    << ", Line in the middle: " << line << std::endl;
+
+        if (tsDateInLine != "" && tsTimeInLine != "")
+        {
+            Date lineDate = ParseDate(tsDateInLine, dateTimeBuffer);
+            Time lineTime = ParseTime(tsTimeInLine);
+
+            if (lineDate == refDate)
+            {
+                /* Line contains reference date, start searching boundaries */
+                bool topFound = false, bottomFound = false;
+                bool direction = BACKWARD;
+                while (!topFound)
+                {
+                    ;
+                }
+                // std::cout << "----------> FOUND!!!" << std::endl;
+                // endSearch = true;
+            }
+            else if (lineDate < refDate)
+            {
+                /* Timestamp is after the line, search in the second half of the file */
+                startPos = currentPos;
+                currentPos = currentPos + (endPos - currentPos) / 2;
+                std::cout << "----------> AFTER!!!" << "lineDate[" << lineDate.ToString() << "] < refDate[" << refDate.ToString() << "] = " << (lineDate < refDate) << std::endl;
+            }
+            else
+            {
+                /* Timestamp is before the line, search in the first half of the file */
+                endPos = currentPos;
+                currentPos = (currentPos - startPos) / 2;
+                std::cout << "----------> BEFORE!!!" << "lineDate[" << lineDate.ToString() << "] > refDate[" << refDate.ToString() << "] = " << (refDate < lineDate) << std::endl;
+            }
+        }
+        else
+        {
+            /* No timestamp in this line, search in the next line */
+            currentPos = currentPos + (std::streampos) 1;
+        }
+
+        iterations++;
+
+        if (startPos == endPos || iterations > numRecords) {
+            endSearch = true;
+        }
+    }
+
+    return std::make_tuple(startPos, endPos);
 }
 
 std::string getLinesFromLogFile(std::string timestamp1, std::string timestamp2) {
