@@ -4,7 +4,7 @@
 
 /* Search direction */
 #define FORWARD 1
-#define BACKWARD 2
+#define BACKWARD 0
 
 class ArduinoData {
 public:

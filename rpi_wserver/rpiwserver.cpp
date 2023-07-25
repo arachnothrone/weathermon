@@ -52,6 +52,9 @@
 std::vector<std::string> executeCommand(const char* cmd);
 std::string getLineFromLogFile(std::string timestamp);
 std::string getLineFromLogFile2(const Date* refDate, const Time* refTime);
+std::string getLineFromLogFile3(const Date* refDate, const Time* refTime);
+std::tuple<std::streampos, std::streampos> getDateRangeFromLogFile(std::ifstream &file, const Date &refDate);
+std::streampos findBoundary(std::ifstream &file, const Date &refDate, bool direction, std::streampos intervalStart, std::streampos intervalEnd);
 std::string string_to_hex(const std::string& input);
 bool containsDate(const std::string& line);
 std::string getDate(const std::string& line);
@@ -360,8 +363,7 @@ int main(int argc, char *argv[]) {
                         Time referenceTime = ParseTime(dataTail);
                         referenceTime.Print();
 
-                        auto foundline = getLineFromLogFile2(&referenceDate, &referenceTime);
-                        std::cout << "Found line: " << foundline << std::endl;
+                        auto foundline = getLineFromLogFile3(&referenceDate, &referenceTime);
 
                     } catch(const std::exception& e) {
                         std::cerr << e.what() << '\n';
@@ -407,6 +409,26 @@ std::string getLineFromLogFile(std::string timestamp) {
         }
         wstationLogFile.close();
     }
+    return "";
+}
+
+std::string getLineFromLogFile3(const Date* refDate, const Time* refTime)
+{
+    std::string line, dateTimeBuffer;
+    std::ifstream wstationLogFile("wstation.log", std::ios::in);
+    Date date = *refDate;
+    if (wstationLogFile.is_open())
+    {
+        std::tuple<std::streampos, std::streampos> range = getDateRangeFromLogFile(wstationLogFile, date);
+        wstationLogFile.seekg(std::get<0>(range), std::ios::beg);
+        getline(wstationLogFile, line);
+        std::cout << "Interval First line: " << line << std::endl;
+        wstationLogFile.seekg(std::get<1>(range), std::ios::beg);
+        getline(wstationLogFile, line);
+        std::cout << "Interval Last line: " << line << std::endl;
+        return line;
+    }
+
     return "";
 }
 
@@ -554,44 +576,54 @@ std::string getLineFromLogFile2(const Date* refDate, const Time* refTime) {
     return "";
 }
 
-std::streampos findBoundary(std::ifstream &file, const Date &refDate, bool direction, std::streampos intervalStart, std::streampos intervalEnd)
-{
-    ;
-}
-
 std::tuple<std::streampos, std::streampos> getDateRangeFromLogFile(std::ifstream &file, const Date &refDate)
 {
-    std::string line, dateTimeBuffer;
-    std::streampos begin, end, currentPos, startPos, endPos;
+    std::streampos upperBoundary, lowerBoundary;
+    std::streampos begin, end;
+
     // find the size of the file
     begin = file.tellg();
     file.seekg(0, std::ios::end);
     end = file.tellg();
-    std::cout << "File size: " << (end-begin) << ", beg=" << begin << ", end=" << end << ", mid=" << (end-begin)/2 << std::endl;
+    std::cout << "File size: " << (end-begin) << ", beg=" << begin << ", end=" << end << ", mid=" << (end - begin)/2 << std::endl;
 
-    int numRecords = end / RECORD_LENGTH;
+    upperBoundary = findBoundary(file, refDate, BACKWARD, begin, end);
+    lowerBoundary = findBoundary(file, refDate, FORWARD, upperBoundary, end);
+
+    return std::make_tuple(upperBoundary, lowerBoundary);
+}
+
+/* Returns absolute position of the beginning of the line inside the interval's boundary */
+std::streampos findBoundary(std::ifstream &file, const Date &refDate, bool direction, std::streampos intervalStart, std::streampos intervalEnd)
+{
+    std::cout << "findBoundary: " << refDate.ToString() << ", dir=" << direction << ", start=" << intervalStart << ", end=" << intervalEnd << std::endl;
+    std::string line, testLine, dateTimeBuffer;
+    std::streampos currentLinePos, startLinePos, endLinePos;    /* Line number, numbering starts from '0' */
+
+    int numRecords = intervalEnd / RECORD_LENGTH - intervalStart / RECORD_LENGTH + 1;
     int iterations = 1;
     bool endSearch = false;
 
-    currentPos = numRecords / 2;
-    startPos = begin;
-    endPos = end / RECORD_LENGTH;
+    startLinePos = intervalStart / RECORD_LENGTH;
+    endLinePos = intervalEnd / RECORD_LENGTH;
+    currentLinePos = startLinePos + (endLinePos - startLinePos) / 2;
 
-    file.seekg (0, file.beg);
+    file.seekg (0, file.beg);   // <-----------------
 
     while (!endSearch)
     {
-        // Set read position in the middle of the file and read next line
-        file.seekg(currentPos * RECORD_LENGTH, std::ios::beg);
+        // Set read position in the middle of the given interval and read next line
+        file.seekg(currentLinePos * RECORD_LENGTH, std::ios::beg);
         getline(file, line);
         
         std::string tsDateInLine = getDate(line);
         std::string tsTimeInLine = getTime(line);
-        std::cout << "Itr: " << iterations 
-                    << ", startPos=" << startPos
-                    << ", currentPos=" << currentPos
-                    << "(abs=" << currentPos * RECORD_LENGTH << ")"
-                    << ", endPos=" << endPos
+        std::cout << "   Itr: " << iterations 
+                    << ", numRecords=" << numRecords
+                    << ", startLinePos=" << startLinePos
+                    << ", currentLinePos=" << currentLinePos
+                    << "(abs=" << currentLinePos * RECORD_LENGTH << ")"
+                    << ", endLinePos=" << endLinePos
                     << ", searching for: " << refDate.ToString()
                     << ", tsDateInLine=" << tsDateInLine
                     << ", tsTimeInLine=" << tsTimeInLine
@@ -604,45 +636,67 @@ std::tuple<std::streampos, std::streampos> getDateRangeFromLogFile(std::ifstream
 
             if (lineDate == refDate)
             {
-                /* Line contains reference date, start searching boundaries */
-                bool topFound = false, bottomFound = false;
-                bool direction = BACKWARD;
-                while (!topFound)
+                /* Line contains reference date, check the previous/next line to determine if the line is actual boundary */
+                std::streampos testLinePos = (direction == BACKWARD) ? (std::streampos) (currentLinePos - (std::streampos) 1) : (std::streampos) (currentLinePos + (std::streampos) 1);
+                file.seekg(testLinePos * RECORD_LENGTH, std::ios::beg);   // TODO: check if testLinePos at the beginning/end of the file
+                getline(file, testLine);
+
+                if (getDate(testLine) != "")
                 {
-                    ;
+                    lineDate = ParseDate(getDate(testLine), dateTimeBuffer);
+                    if (!(lineDate == refDate))
+                    {
+                        /* Previous line does not contain reference date, return current position */
+                        std::cout << "----------> FOUND 1 !!!" << "currentLinePos=" << currentLinePos << ", abs=" << currentLinePos * RECORD_LENGTH << std::endl;
+                        return currentLinePos * RECORD_LENGTH;
+                    }
+                    else
+                    {
+                        if (direction == BACKWARD)
+                        {
+                            currentLinePos = findBoundary(file, refDate, direction, startLinePos * RECORD_LENGTH, currentLinePos * RECORD_LENGTH) / RECORD_LENGTH;
+                        }
+                        else
+                        {
+                            currentLinePos = findBoundary(file, refDate, direction, currentLinePos * RECORD_LENGTH, endLinePos * RECORD_LENGTH) / RECORD_LENGTH;
+                        }
+                        
+                        std::cout << "----------> FOUND 2 !!!" << "currentLinePos=" << currentLinePos << ", abs=" << currentLinePos * RECORD_LENGTH << std::endl;
+                        return currentLinePos * RECORD_LENGTH;
+                    }
                 }
-                // std::cout << "----------> FOUND!!!" << std::endl;
-                // endSearch = true;
             }
             else if (lineDate < refDate)
             {
                 /* Timestamp is after the line, search in the second half of the file */
-                startPos = currentPos;
-                currentPos = currentPos + (endPos - currentPos) / 2;
+                startLinePos = currentLinePos;
+                currentLinePos = currentLinePos + (endLinePos - currentLinePos) / 2;
                 std::cout << "----------> AFTER!!!" << "lineDate[" << lineDate.ToString() << "] < refDate[" << refDate.ToString() << "] = " << (lineDate < refDate) << std::endl;
             }
             else
             {
                 /* Timestamp is before the line, search in the first half of the file */
-                endPos = currentPos;
-                currentPos = (currentPos - startPos) / 2;
+                endLinePos = currentLinePos;
+                currentLinePos = (currentLinePos - startLinePos) / 2;
                 std::cout << "----------> BEFORE!!!" << "lineDate[" << lineDate.ToString() << "] > refDate[" << refDate.ToString() << "] = " << (refDate < lineDate) << std::endl;
             }
         }
         else
         {
             /* No timestamp in this line, search in the next line */
-            currentPos = currentPos + (std::streampos) 1;
+            currentLinePos = currentLinePos + (std::streampos) 1;
         }
 
         iterations++;
 
-        if (startPos == endPos || iterations > numRecords) {
+        if (startLinePos == endLinePos || iterations > numRecords) {
             endSearch = true;
         }
     }
 
-    return std::make_tuple(startPos, endPos);
+    /* Shouldn't get here, leave for debug */
+    std::cout << "----------> FOUND 3 !!!" << "currentLinePos=" << currentLinePos << ", abs=" << currentLinePos * RECORD_LENGTH << std::endl;
+    return currentLinePos * RECORD_LENGTH;
 }
 
 std::string getLinesFromLogFile(std::string timestamp1, std::string timestamp2) {
@@ -670,7 +724,7 @@ std::string getLinesFromLogFile(std::string timestamp1, std::string timestamp2) 
 bool containsDate(const std::string& line)
 {
     std::smatch matches;
-    std::regex datePattern("Time: (\\d{4}/\\d{2}/\\d{2})");  // (Time: \d{4}/\d{2}/\d{2}\s\d{2}:\d{2}:\d{2})
+    std::regex datePattern("Ti[m, M]e: (\\d{4}/\\d{2}/\\d{2})");  // (Time: \d{4}/\d{2}/\d{2}\s\d{2}:\d{2}:\d{2})
     
     if (std::regex_search(line, matches, datePattern)) {
         return true;
@@ -682,7 +736,7 @@ bool containsDate(const std::string& line)
 std::string getDate(const std::string& line)
 {
     std::smatch matches;
-    std::regex datePattern("Time: (\\d{4}/\\d{2}/\\d{2})\\s(\\d{2}:\\d{2}:\\d{2})");  // (Time: \d{4}/\d{2}/\d{2}\s\d{2}:\d{2}:\d{2})
+    std::regex datePattern("Ti[m, M]e: (\\d{4}/\\d{2}/\\d{2})\\s(\\d{2}:\\d{2}:\\d{2})");  // (Time: \d{4}/\d{2}/\d{2}\s\d{2}:\d{2}:\d{2})
     
     if (std::regex_search(line, matches, datePattern)) {
         return matches[1];
@@ -694,7 +748,7 @@ std::string getDate(const std::string& line)
 std::string getTime(const std::string& line)
 {
     std::smatch matches;
-    std::regex timePattern("Time: (\\d{4}/\\d{2}/\\d{2})\\s(\\d{2}:\\d{2}:\\d{2})");
+    std::regex timePattern("Ti[m, M]e: (\\d{4}/\\d{2}/\\d{2})\\s(\\d{2}:\\d{2}:\\d{2})");
     
     if (std::regex_search(line, matches, timePattern)) {
         return matches[2];
