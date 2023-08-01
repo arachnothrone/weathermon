@@ -496,8 +496,8 @@ std::streampos findBoundary(std::ifstream &file, const Date &refDate, bool direc
                 /* Line contains reference date, check the previous/next line to determine if the line is actual boundary */
                 std::streampos testLinePos = (direction == BACKWARD) ? (std::streampos) (currentLinePos - (std::streampos) 1) : (std::streampos) (currentLinePos + (std::streampos) 1);
                 std::cout << "   Test line: " << testLinePos << std::endl;
-                
-                if (testLinePos < 0 || (testLinePos > endLinePos - (std::streampos)1))
+
+                if (currentLinePos == 0 || (currentLinePos >= endLinePos - (std::streampos) 1))     /* Last line in the file is empty */
                 {
                     return currentLinePos * RECORD_LENGTH;
                 }
