@@ -242,6 +242,101 @@ std::string string_to_hex(const std::string& input) {
     return output;
 }
 
+DataMessage::DataMessage(const std::string wsLogFileName, const std::tuple<std::streampos, std::streampos> dataBlockRange)
+{
+    std::streampos upperBoundary = std::get<0>(dataBlockRange);
+    std::streampos lowerBoundary = std::get<1>(dataBlockRange);
+
+    _numRecords = lowerBoundary / RECORD_LENGTH - upperBoundary / RECORD_LENGTH + 1;
+
+    _records = new RECORD_T[_numRecords];
+    //_records = static_cast<RECORD_T*>(malloc(_numRecords * sizeof(RECORD_T)));
+
+    _wsLogFile = std::ifstream(wsLogFileName, std::ios::in);
+
+    // read _wsLogFile from upperBoundary to lowerBoundary into _records
+    if (_wsLogFile.is_open())
+    {
+        std::string line;
+        std::streampos currentLinePos = upperBoundary / RECORD_LENGTH;
+        _wsLogFile.seekg (0, _wsLogFile.beg);
+        
+        std::regex timePattern("Time: ([0-9]{4}/[0-9]{2}/[0-9]{2} [0-9]{2}:[0-9]{2}:[0-9]{2}), ");
+        std::regex temperaturePattern("Temperature: ([0-9]+.[0-9]+) C, ");
+        std::regex humidityPattern("Humidity: ([0-9]+.[0-9]+) %, ");
+        std::regex pressurePattern("Pressure: ([0-9]+.[0-9]+) mmHg, ");
+        std::regex ambientPattern("Ambient:\\s{1,}([0-9]+), ");
+        std::regex vccPattern("Vcc: ([0-9]+) mV");
+        // std::regex statsPattern("STATS: (\\s{1,}[0-9]{1,3}){3}");
+        std::regex statsPattern("STATS:\\s{1,}([0-9]{1,3})\\s{1,}([0-9]{1,3})\\s{1,}([0-9]{1,3})");
+
+        std::smatch matches;
+
+        for (int i = 0; i < _numRecords; i++)
+        {
+            bool bParsed = false;
+
+            _wsLogFile.seekg(currentLinePos * RECORD_LENGTH, std::ios::beg);
+            getline(_wsLogFile, line);
+
+            std::cout << "Line: " << line << std::endl;
+
+            if (std::regex_search(line, matches, timePattern)) {
+                bParsed = true;
+            } else {bParsed = false;}
+            if (bParsed == true && std::regex_search(line, matches, temperaturePattern)) {
+                _records[i].temperature = stod(matches[1]);
+            } else {bParsed = false;}
+            if (bParsed == true && std::regex_search(line, matches, humidityPattern)) {
+                _records[i].humidity = stod(matches[1]);
+            } else {bParsed = false;}
+            if (bParsed == true && std::regex_search(line, matches, pressurePattern)) {
+                _records[i].pressure = stod(matches[1]);
+            } else {bParsed = false;}
+            if (bParsed == true && std::regex_search(line, matches, ambientPattern)) {
+                _records[i].ambientLight = stoi(matches[1]);
+            } else {bParsed = false;}
+            if (bParsed == true && std::regex_search(line, matches, vccPattern)) {
+                _records[i].vcc = stoi(matches[1]);
+            } else {bParsed = false;}
+            if (bParsed == true && std::regex_search(line, matches, statsPattern)) {
+                _records[i].stats.totalNrOfRestarts = stoi(matches[1]);
+                _records[i].stats.successCounter = stoi(matches[2]);
+                _records[i].stats.rxBufferOverrunCntr = stoi(matches[3]);
+            } else {bParsed = false;}
+
+            currentLinePos + (std::streampos) 1;
+        }
+        _wsLogFile.close();
+    }
+}
+
+DataMessage::~DataMessage()
+{
+    delete[] _records;
+    // free(_records);
+    // _records = nullptr;
+}
+
+void DataMessage::PrintMessage() const
+{
+    for (int i = 0; i < _numRecords; i++)
+    {
+        std::cout 
+            << "Record " << i << ": " 
+            << _records[i].temperature << ", " 
+            << _records[i].humidity << ", " 
+            << _records[i].pressure << ", " 
+            << _records[i].ambientLight << ", " 
+            << _records[i].vcc << ", " 
+            << _records[i].stats.totalNrOfRestarts << ", " 
+            << _records[i].stats.successCounter << ", " 
+            << _records[i].stats.rxBufferOverrunCntr 
+            << std::endl;
+    }
+}
+
+
 /* Main function */
 int main(int argc, char *argv[]) {
     int serial_fd = 0;
@@ -424,9 +519,13 @@ std::string getLineFromLogFile3(const Date* refDate, const Time* refTime)
         std::cout << "Interval First line: " << line << std::endl;
         wstationLogFile.seekg(std::get<1>(range), std::ios::beg);
         getline(wstationLogFile, line);
-        std::cout << "Interval Last line: " << line << std::endl;
-        
+        std::cout << "Interval Last line : " << line << std::endl;
+
         wstationLogFile.close();
+
+        DataMessage msg("wstation.log", range);
+        msg.PrintMessage();
+
         return line;
     }
 
