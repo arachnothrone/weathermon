@@ -16,8 +16,9 @@ typedef struct {
 class ArduinoData {
 public:
     ArduinoData(const char* const data);
+    ArduinoData();
     std::string GetString() const;
-
+    void ReadBuffer(const char* const data);
     ~ArduinoData();
 
 private:

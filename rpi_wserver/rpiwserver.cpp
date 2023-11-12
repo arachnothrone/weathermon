@@ -203,6 +203,26 @@ int initializeSerialPort(const std::string* const pSerialPort, int* const pSeria
 }
 
 ArduinoData::ArduinoData(const char* const data) {
+    this->ReadBuffer(data);
+}
+
+ArduinoData::ArduinoData() {
+    _dataString = "";
+    _temperature = 0.0;
+    _humidity = 0.0;
+    _pressure = 0.0;
+    _ambientLight = 0;
+    _vcc = 0;
+    _stats = {0, 0, 0};
+}
+
+ArduinoData::~ArduinoData() {}
+
+std::string ArduinoData::GetString() const {
+    return _dataString;
+}
+
+void ArduinoData::ReadBuffer(const char* const data) {
     std::string dataStr(data);
     std::smatch matches;
     std::regex timePattern("Time: (\\d{4}/\\d{2}/\\d{2}\\s\\d{2}:\\d{2}:\\d{2})");  // (Time: \d{4}/\d{2}/\d{2}\s\d{2}:\d{2}:\d{2})
@@ -219,12 +239,6 @@ ArduinoData::ArduinoData(const char* const data) {
         /* No timestamp, ignore */
         _dataString = "";
     }
-}
-
-ArduinoData::~ArduinoData() {}
-
-std::string ArduinoData::GetString() const {
-    return _dataString;
 }
 
 std::string string_to_hex(const std::string& input) {
@@ -247,6 +261,7 @@ int main(int argc, char *argv[]) {
     int serial_fd = 0;
     std::string serialPort = "";
     FILE *wstationLogFile;
+    ArduinoData arduinoReadings = ArduinoData();
 
     SocketConnection phoneClient(RX_PORT);
     
@@ -322,12 +337,12 @@ int main(int argc, char *argv[]) {
                     // std::string newstr = std::string(read_buf).substr(0, num_bytes - 2) + "some more stuff";
                     // std::string newstr = std::string(read_buf).substr(0, num_bytes - 20);
 
-                    ArduinoData receivedData(read_buf);
+                    arduinoReadings.ReadBuffer(read_buf);
 
                     // Write received data to log file
                     //fprintf(wstationLogFile, "%s", read_buf);
-                    if (receivedData.GetString() != std::string("")) {
-                        fprintf(wstationLogFile, "%s", receivedData.GetString().c_str());
+                    if (arduinoReadings.GetString() != std::string("")) {
+                        fprintf(wstationLogFile, "%s", arduinoReadings.GetString().c_str());
                         //fprintf(wstationLogFile, "%s\n", parseDataToJsonRegex(read_buf).c_str());
                         fflush(wstationLogFile);
                     }
