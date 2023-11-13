@@ -220,19 +220,42 @@ ArduinoData::ArduinoData() {
 
 ArduinoData::~ArduinoData() {}
 
-std::string ArduinoData::GetString() const {
+std::string ArduinoData::GetString() const
+{
     return _dataString;
 }
 
-void ArduinoData::ReadBuffer(const char* const data) {
+void ArduinoData::ReadBuffer(const char* const data)
+{
     std::string dataStr(data);
     std::smatch matches;
     std::regex timePattern("Time: (\\d{4}/\\d{2}/\\d{2}\\s\\d{2}:\\d{2}:\\d{2})");  // (Time: \d{4}/\d{2}/\d{2}\s\d{2}:\d{2}:\d{2})
-    
+    std::regex dataPattern("");
+
     if (std::regex_search(dataStr, matches, timePattern)) {
         if (dataStr.length() == RECORD_LENGTH) {
             /* Timestamp found and data length is correct */
             _dataString = dataStr;
+
+            //regex: ".*Temperature: (\d{2}.\d) C, Humidity: (\d{2}.\d) %, Pressure: (\d{3}.\d{2}) mmHg, Ambient:\s{1,2}(\d{3,4}), Vcc: (\d{1,4}) mV, STATS:\s{0,3}(\d{1,4})\s{1,4}(\d{1,4})\s{1,4}(\d{1,4})"
+            std::regex dataPattern(".*Temperature: (\\d{2}\\.\\d) C, Humidity: (\\d{2}\\.\\d) %, Pressure: (\\d{3}\\.\\d{2}) mmHg, Ambient:\\s{1,2}(\\d{3,4}), Vcc: (\\d{1,4}) mV, STATS:\\s{0,3}(\\d{1,4})\\s{1,4}(\\d{1,4})\\s{1,4}(\\d{1,4})");
+            std::smatch matches;
+            if (std::regex_search(dataStr, matches, dataPattern)) {
+                _temperature = std::stod(matches[1]);
+                _humidity = std::stod(matches[2]);
+                _pressure = std::stod(matches[3]);
+                _ambientLight = std::stoi(matches[4]);
+                _vcc = std::stoi(matches[5]);
+                _stats = {
+                    (uint16_t) std::stoi(matches[6]),
+                    (uint16_t) std::stoi(matches[7]),
+                    (uint16_t) std::stoi(matches[8])
+                };
+
+                _lastValidDataString = _dataString;
+                std::cout << "Data received: T/H/P/A/Vcc: " << _temperature << "/" << _humidity << "/" << _pressure << "/" << _ambientLight << "/" << _vcc << std::endl;
+            }
+
         } else {
             /* Timestamp found but data length is incorrect */
             _dataString = std::string("TiMe: ").append(matches[1]) + std::string(RECORD_LENGTH - 19 - 6 - 1, '.') + std::string("\n");

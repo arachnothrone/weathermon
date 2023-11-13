@@ -34,6 +34,7 @@ static const std::map<CMD_E, std::string> mCMDMap = {
     {GETDATARANGE, "GETDATARANGE"},
 };
 
+/* Data reveived from weather station node */
 class ArduinoData {
 public:
     ArduinoData(const char* const data);
@@ -46,22 +47,24 @@ private:
     // int _id;
     // int _value;
     // int _timestamp;
-    int8_t      _temperature;
-    uint8_t     _humidity;
-    uint16_t    _pressure;
+    double      _temperature;
+    double      _humidity;
+    double      _pressure;
     uint16_t    _ambientLight;
     uint16_t    _vcc;
     STATS_T     _stats;
     std::string _dataString;
+    std::string _lastValidDataString;
 };
 
+/* Message sent to client device */
 class DataMessage {
 public:
     DataMessage(const std::string wsLogFileName, const std::tuple<std::streampos, std::streampos> dataBlockRange);
     void PrintMessage() const;
     ~DataMessage();
-private:
 
+private:
     int _numRecords;
     RECORD_T* _records;
     std::ifstream _wsLogFile;
