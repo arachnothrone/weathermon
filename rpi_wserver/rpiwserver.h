@@ -2,6 +2,7 @@
 
 #include <string>
 #include <stdint.h>
+#include <map>
 
 /* Search direction */
 #define FORWARD 1
@@ -21,6 +22,17 @@ typedef struct {
     uint16_t    vcc;
     STATS_T     stats;
 } RECORD_T;
+
+typedef enum {
+    INVALID_COMMAND = -1,
+    GETCURRENTDATA = 1,
+    GETDATARANGE,
+} CMD_E;
+
+static const std::map<CMD_E, std::string> mCMDMap = {
+    {GETCURRENTDATA, "GETCURRENTDATA"},
+    {GETDATARANGE, "GETDATARANGE"},
+};
 
 class ArduinoData {
 public:

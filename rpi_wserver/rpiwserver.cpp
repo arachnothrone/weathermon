@@ -58,6 +58,8 @@ std::string string_to_hex(const std::string& input);
 bool containsDate(const std::string& line);
 std::string getDate(const std::string& line);
 std::string getTime(const std::string& line);
+CMD_E getClientCmdCode(const std::string& data);
+int validateCmdCode(const int& cmdCode, const std::string& data);
 
 static volatile atomic_int keepRunning = 1;
 
@@ -359,14 +361,14 @@ int main(int argc, char *argv[]) {
     ArduinoData arduinoReadings = ArduinoData();
 
     SocketConnection phoneClient(RX_PORT);
-    
+
     wstationLogFile = fopen("wstation.log", "a+");
 
     signal(SIGINT, signalHandler);
     signal(SIGTERM, signalHandler);
 
     printf("OS_TYPE: %d\n", (int)OS_TYPE);
-    
+
     if (argc > 1) {
         serialPort = argv[1];
     } else {
@@ -418,7 +420,8 @@ int main(int argc, char *argv[]) {
             /* Select timeout */
         } else {
             /* Check ready descriptors */
-            if (FD_ISSET(serial_fd, &read_fds)) {                
+            if (FD_ISSET(serial_fd, &read_fds)) {
+                /* Arduino data reveived */
                 int num_bytes = read(serial_fd, &read_buf, sizeof(read_buf));
                 if (num_bytes > 0) {
                     // Print received data to stdout
@@ -459,29 +462,42 @@ int main(int argc, char *argv[]) {
                     FD_SET(serial_fd, &read_fds);
                 }
             } else if (FD_ISSET(phoneClient.GetSocketFd(), &read_fds)) {
+                /* Client request received */
                 std::cout << "Phone client data received." << std::endl;
                 auto data = phoneClient.Recv();
-                std::cout << "Phone data received bytes: " << data.size() << ", data: " << data << std::endl;
-                
+                auto cmd = getClientCmdCode(std::string(data));
                 std::string dataTail;
-                try {
-                    Date referenceDate = ParseDate(data, dataTail);
-                    referenceDate.Print();
 
-                    try {
-                        Time referenceTime = ParseTime(dataTail);
-                        referenceTime.Print();
+                switch (cmd) {
+                case GETCURRENTDATA:
+                    /* code */
+                    break;
+                case GETDATARANGE:
+                    std::cout << "Phone data received bytes: " << data.size() << ", data: " << data << std::endl;
+                    try
+                    {
+                        Date referenceDate = ParseDate(data, dataTail);
+                        referenceDate.Print();
 
-                        auto foundline = getLineFromLogFile3(&referenceDate, &referenceTime);
+                        try {
+                            Time referenceTime = ParseTime(dataTail);
+                            referenceTime.Print();
 
-                    } catch(const std::exception& e) {
+                            auto foundline = getLineFromLogFile3(&referenceDate, &referenceTime);
+
+                        } catch(const std::exception& e) {
+                            std::cerr << e.what() << '\n';
+                        }
+                    }
+                    catch(const std::exception& e)
+                    {
                         std::cerr << e.what() << '\n';
                     }
-                } catch(const std::exception& e) {
-                    std::cerr << e.what() << '\n';
+                    break;
+                default:
+                    std::cout << "Unknown or invalid client command: " << data << ", size=" << data.size() << std::endl;
+                    break;
                 }
-
-                
 
                 std::string response = "DUMMY server response.";
                 phoneClient.Send(response, response.size());
@@ -734,4 +750,45 @@ std::string getTime(const std::string& line)
     }
 
     return "";
+}
+
+int validateCmdCode(const int& cmdCode, const std::string& data)
+{
+    int ret = INVALID_COMMAND;
+    auto it = mCMDMap.find((CMD_E)cmdCode);
+
+    if (it != mCMDMap.end())
+    {
+        unsigned long int cmdCodeStringLen = mCMDMap.find((CMD_E)cmdCode)->second.length();
+        if (data.length() >= cmdCodeStringLen + 2)
+        {
+            std::string cmdCodeString = data.substr(2, cmdCodeStringLen);
+            if (cmdCodeString == mCMDMap.find((CMD_E)cmdCode)->second)
+            {
+                return cmdCode;
+            }
+            else
+            {
+                return INVALID_COMMAND;
+            }
+        }
+    }
+
+    return ret;
+}
+
+CMD_E getClientCmdCode(const std::string& data)
+{
+    std::string cmdCodeString = data.substr(0, 2);
+    try
+    {
+        int cmdCode = std::stoi(cmdCodeString);
+        int cmdCodeValidated = validateCmdCode(cmdCode, data);
+        return (CMD_E) cmdCodeValidated;
+    }
+    catch(const std::exception& e)
+    {
+        std::cerr << e.what() << '\n';
+        return INVALID_COMMAND;
+    }
 }
