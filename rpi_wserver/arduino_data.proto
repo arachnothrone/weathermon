@@ -1,0 +1,17 @@
+syntax = "proto3";
+
+message ArduionSensorsData {
+    double temperature = 1;
+    double humidity = 2;
+    double pressure = 3;
+    uint32 ambientLight = 4;
+    uint32 vcc = 5;
+
+    message Stats {
+        uint32 totalNrOfRestarts = 1;
+        uint32 successCounter = 2;
+        uint32 rxBufferOverrunCntr = 3;
+    }
+
+    Stats stats = 6;
+}

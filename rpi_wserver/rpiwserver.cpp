@@ -26,6 +26,10 @@
 #include "comm.h"
 #include "datetime.h"
 
+#include <google/protobuf/io/zero_copy_stream_impl.h>
+#include <google/protobuf/text_format.h>
+#include "arduino_data.pb.h"
+
 /* Define constants */
 #define SERIAL_PORT_DEFAULT_PATTERN "/dev/cu.usbmodem*"             // macos
 #define BAUD_RATE                   9600
