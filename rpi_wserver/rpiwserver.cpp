@@ -28,6 +28,7 @@
 
 #include <google/protobuf/io/zero_copy_stream_impl.h>
 #include <google/protobuf/text_format.h>
+#include <google/protobuf/message.h>
 #include "arduino_data.pb.h"
 
 /* Define constants */
@@ -270,6 +271,30 @@ void ArduinoData::ReadBuffer(const char* const data)
     }
 }
 
+double ArduinoData::GetTemperature() const {
+    return _temperature;
+}
+
+double ArduinoData::GetHumidity() const {
+    return _humidity;
+}
+
+double ArduinoData::GetPressure() const {
+    return _pressure;
+}
+
+uint16_t ArduinoData::GetAmbientLight() const {
+    return _ambientLight;
+}
+
+uint16_t ArduinoData::GetVcc() const {
+    return _vcc;
+}
+
+STATS_T ArduinoData::GetStats() const {
+    return _stats;
+}
+
 std::string string_to_hex(const std::string& input) {
     static const char* const lut = "0123456789ABCDEF";
     size_t len = input.length();
@@ -495,9 +520,22 @@ int main(int argc, char *argv[]) {
                 auto cmd = getClientCmdCode(std::string(data));
                 std::string dataTail;
 
+                std::string serializedDataMsg;
+                ArduionSensorsData sensorsDataMsg;
+                ArduionSensorsData::Stats* stats = sensorsDataMsg.mutable_stats();
+
                 switch (cmd) {
                 case GETCURRENTDATA:
-                    /* code */
+                    sensorsDataMsg.set_temperature(arduinoReadings.GetTemperature());
+                    sensorsDataMsg.set_humidity(arduinoReadings.GetHumidity());
+                    sensorsDataMsg.set_pressure(arduinoReadings.GetPressure());
+                    sensorsDataMsg.set_ambientlight(arduinoReadings.GetAmbientLight());
+                    sensorsDataMsg.set_vcc(arduinoReadings.GetVcc());
+                    stats->set_totalnrofrestarts(arduinoReadings.GetStats().totalNrOfRestarts);
+                    stats->set_successcounter(arduinoReadings.GetStats().successCounter);
+                    stats->set_rxbufferoverruncntr(arduinoReadings.GetStats().rxBufferOverrunCntr);
+                    sensorsDataMsg.SerializeToString(&serializedDataMsg);
+                    phoneClient.Send(serializedDataMsg, serializedDataMsg.size());
                     break;
                 case GETDATARANGE:
                     std::cout << "Phone data received bytes: " << data.size() << ", data: " << data << std::endl;
@@ -527,7 +565,7 @@ int main(int argc, char *argv[]) {
                 }
 
                 std::string response = "DUMMY server response.";
-                phoneClient.Send(response, response.size());
+                //phoneClient.Send(response, response.size());
             } else {
                 std::cout << "select() error: unknown fd(" << serial_fd << ")." << std::endl;
             }

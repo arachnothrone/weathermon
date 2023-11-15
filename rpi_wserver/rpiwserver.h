@@ -41,6 +41,12 @@ public:
     ArduinoData();
     std::string GetString() const;
     void ReadBuffer(const char* const data);
+    double GetTemperature() const;
+    double GetHumidity() const;
+    double GetPressure() const;
+    uint16_t GetAmbientLight() const;
+    uint16_t GetVcc() const;
+    STATS_T GetStats() const;
     ~ArduinoData();
 
 private:
