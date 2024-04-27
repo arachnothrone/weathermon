@@ -1,6 +1,8 @@
 # Compiler and flags
 CC = g++
-CFLAGS = -Wall -Wextra -std=c++14
+CFLAGS = -Wall -Wextra -std=c++17
+#LDFLAGS = -lprotobuf -lpthread
+LDFLAGS = -lprotobuf
 DEBUG = -g
 
 # OS specific flags
@@ -15,11 +17,13 @@ else
 	_OS_TYPE = 2
 endif
 
+PROTOBUF_INCLUDE = /usr/local/include/google/protobuf
+
 # Source files and executable
 SRCS = $(wildcard *.cpp)
 OBJS = $(SRCS:.cpp=.o)
 EXEC = rpiwserver
-CFLAGS += -D OS_TYPE=$(_OS_TYPE)
+CFLAGS += -D OS_TYPE=$(_OS_TYPE) -I$(PROTOBUF_INCLUDE)
 
 # Targets
 all: $(EXEC)
@@ -35,3 +39,7 @@ clean:
 
 debug: CFLAGS += $(DEBUG)
 debug: clean all
+
+
+# bazel-bin/protoc
+# bazel-bin/src/google/protobuf/compiler/cpp
