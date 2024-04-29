@@ -1,5 +1,7 @@
 syntax = "proto3";
 
+package ARDUINO_DATA;
+
 message ArduinoSensorsData {
     double temperature = 1;
     double humidity = 2;
@@ -7,11 +9,12 @@ message ArduinoSensorsData {
     uint32 ambientLight = 4;
     uint32 vcc = 5;
 
-    message Stats {
-        uint32 totalNrOfRestarts = 1;
-        uint32 successCounter = 2;
-        uint32 rxBufferOverrunCntr = 3;
-    }
+//    message Stats {
+//        uint32 totalNrOfRestarts = 1;
+//        uint32 successCounter = 2;
+//        uint32 rxBufferOverrunCntr = 3;
+//    }
 
-    Stats stats = 6;
+//    Stats stats = 6;
+
 }

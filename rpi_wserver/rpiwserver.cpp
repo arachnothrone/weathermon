@@ -30,7 +30,7 @@
 // #include <google/protobuf/io/zero_copy_stream_impl.h>
 // #include <google/protobuf/text_format.h>
 // #include <google/protobuf/message.h>
-//#include "arduino_data.pb.h"
+#include "arduino_data.pb.h"
 
 /* Define constants */
 #define SERIAL_PORT_DEFAULT_PATTERN "/dev/cu.usbmodem*"             // macos
@@ -526,19 +526,21 @@ int main(int argc, char *argv[]) {
                 std::string serializedDataMsg;
                 // ...QQQ... ArduionSensorsData sensorsDataMsg;
                 // ...QQQ... ArduionSensorsData::Stats* stats = sensorsDataMsg.mutable_stats();
+                ARDUINO_DATA::ArduinoSensorsData sensorsDataMsg;
+                //ARDUINO_DATA::ArduinoSensorsData::Stats* stats = sensorsDataMsg.mutable_stats();
 
                 switch (cmd) {
                 case GETCURRENTDATA:
-                    // sensorsDataMsg.set_temperature(arduinoReadings.GetTemperature());
-                    // sensorsDataMsg.set_humidity(arduinoReadings.GetHumidity());
-                    // sensorsDataMsg.set_pressure(arduinoReadings.GetPressure());
-                    // sensorsDataMsg.set_ambientlight(arduinoReadings.GetAmbientLight());
-                    // sensorsDataMsg.set_vcc(arduinoReadings.GetVcc());
+                    sensorsDataMsg.set_temperature(arduinoReadings.GetTemperature());
+                    sensorsDataMsg.set_humidity(arduinoReadings.GetHumidity());
+                    sensorsDataMsg.set_pressure(arduinoReadings.GetPressure());
+                    sensorsDataMsg.set_ambientlight(arduinoReadings.GetAmbientLight());
+                    sensorsDataMsg.set_vcc(arduinoReadings.GetVcc());
                     // stats->set_totalnrofrestarts(arduinoReadings.GetStats().totalNrOfRestarts);
                     // stats->set_successcounter(arduinoReadings.GetStats().successCounter);
                     // stats->set_rxbufferoverruncntr(arduinoReadings.GetStats().rxBufferOverrunCntr);
-                    // sensorsDataMsg.SerializeToString(&serializedDataMsg);
-                    // phoneClient.Send(serializedDataMsg, serializedDataMsg.size());
+                    sensorsDataMsg.SerializeToString(&serializedDataMsg);
+                    phoneClient.Send(serializedDataMsg, serializedDataMsg.size());
                     break;
                 case GETDATARANGE:
                     std::cout << "Phone data received bytes: " << data.size() << ", data: " << data << std::endl;
