@@ -1,6 +1,6 @@
 syntax = "proto3";
 
-message ArduionSensorsData {
+message ArduinoSensorsData {
     double temperature = 1;
     double humidity = 2;
     double pressure = 3;

@@ -2,7 +2,7 @@
 CC = g++
 CFLAGS = -Wall -Wextra -std=c++17
 #LDFLAGS = -lprotobuf -lpthread
-LDFLAGS = -lprotobuf
+#LDFLAGS = -lprotobuf
 DEBUG = -g
 
 # OS specific flags
@@ -17,19 +17,21 @@ else
 	_OS_TYPE = 2
 endif
 
-PROTOBUF_INCLUDE = /usr/local/include/google/protobuf
+#PROTOBUF_INCLUDE = /usr/local/include/google/protobuf
 
 # Source files and executable
 SRCS = $(wildcard *.cpp)
 OBJS = $(SRCS:.cpp=.o)
 EXEC = rpiwserver
-CFLAGS += -D OS_TYPE=$(_OS_TYPE) -I$(PROTOBUF_INCLUDE)
+#CFLAGS += -D OS_TYPE=$(_OS_TYPE) -I$(PROTOBUF_INCLUDE)
+CFLAGS += -D OS_TYPE=$(_OS_TYPE)
 
 # Targets
 all: $(EXEC)
 
 $(EXEC): $(OBJS)
-	$(CC) $(CFLAGS) $(OBJS) $(LDFLAGS) -o $(EXEC)
+#	$(CC) $(CFLAGS) $(OBJS) $(LDFLAGS) -o $(EXEC)
+	$(CC) $(CFLAGS) $(OBJS) -o $(EXEC)
 
 %.o: %.cpp
 	$(CC) $(CFLAGS) -c $< -o $@

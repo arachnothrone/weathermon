@@ -20,16 +20,17 @@
 #include <regex>
 
 #include <signal.h>
-#include <stdatomic.h>
+// #include <stdatomic.h>
+#include <atomic>
 
 #include "rpiwserver.h"
 #include "comm.h"
 #include "datetime.h"
 
-#include <google/protobuf/io/zero_copy_stream_impl.h>
-#include <google/protobuf/text_format.h>
-#include <google/protobuf/message.h>
-#include "arduino_data.pb.h"
+// #include <google/protobuf/io/zero_copy_stream_impl.h>
+// #include <google/protobuf/text_format.h>
+// #include <google/protobuf/message.h>
+//#include "arduino_data.pb.h"
 
 /* Define constants */
 #define SERIAL_PORT_DEFAULT_PATTERN "/dev/cu.usbmodem*"             // macos
@@ -66,7 +67,8 @@ std::string getTime(const std::string& line);
 CMD_E getClientCmdCode(const std::string& data);
 int validateCmdCode(const int& cmdCode, const std::string& data);
 
-static volatile atomic_int keepRunning = 1;
+//static volatile atomic_int keepRunning = 1;
+static volatile std::atomic<int> keepRunning; 
 
 void readDataFromSerialPort() {
 }
@@ -411,6 +413,7 @@ int main(int argc, char *argv[]) {
     std::string serialPort = "";
     FILE *wstationLogFile;
     ArduinoData arduinoReadings = ArduinoData();
+    keepRunning = 1;
 
     SocketConnection phoneClient(RX_PORT);
 
@@ -521,21 +524,21 @@ int main(int argc, char *argv[]) {
                 std::string dataTail;
 
                 std::string serializedDataMsg;
-                ArduionSensorsData sensorsDataMsg;
-                ArduionSensorsData::Stats* stats = sensorsDataMsg.mutable_stats();
+                // ...QQQ... ArduionSensorsData sensorsDataMsg;
+                // ...QQQ... ArduionSensorsData::Stats* stats = sensorsDataMsg.mutable_stats();
 
                 switch (cmd) {
                 case GETCURRENTDATA:
-                    sensorsDataMsg.set_temperature(arduinoReadings.GetTemperature());
-                    sensorsDataMsg.set_humidity(arduinoReadings.GetHumidity());
-                    sensorsDataMsg.set_pressure(arduinoReadings.GetPressure());
-                    sensorsDataMsg.set_ambientlight(arduinoReadings.GetAmbientLight());
-                    sensorsDataMsg.set_vcc(arduinoReadings.GetVcc());
-                    stats->set_totalnrofrestarts(arduinoReadings.GetStats().totalNrOfRestarts);
-                    stats->set_successcounter(arduinoReadings.GetStats().successCounter);
-                    stats->set_rxbufferoverruncntr(arduinoReadings.GetStats().rxBufferOverrunCntr);
-                    sensorsDataMsg.SerializeToString(&serializedDataMsg);
-                    phoneClient.Send(serializedDataMsg, serializedDataMsg.size());
+                    // sensorsDataMsg.set_temperature(arduinoReadings.GetTemperature());
+                    // sensorsDataMsg.set_humidity(arduinoReadings.GetHumidity());
+                    // sensorsDataMsg.set_pressure(arduinoReadings.GetPressure());
+                    // sensorsDataMsg.set_ambientlight(arduinoReadings.GetAmbientLight());
+                    // sensorsDataMsg.set_vcc(arduinoReadings.GetVcc());
+                    // stats->set_totalnrofrestarts(arduinoReadings.GetStats().totalNrOfRestarts);
+                    // stats->set_successcounter(arduinoReadings.GetStats().successCounter);
+                    // stats->set_rxbufferoverruncntr(arduinoReadings.GetStats().rxBufferOverrunCntr);
+                    // sensorsDataMsg.SerializeToString(&serializedDataMsg);
+                    // phoneClient.Send(serializedDataMsg, serializedDataMsg.size());
                     break;
                 case GETDATARANGE:
                     std::cout << "Phone data received bytes: " << data.size() << ", data: " << data << std::endl;
