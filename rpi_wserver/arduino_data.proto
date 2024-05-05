@@ -16,5 +16,5 @@ message ArduinoSensorsData {
 //    }
 
 //    Stats stats = 6;
-//
+////
 }
