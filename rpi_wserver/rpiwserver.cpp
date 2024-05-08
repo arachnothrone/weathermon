@@ -612,6 +612,7 @@ std::string getLineFromLogFile3(const Date* refDate, const Time* refTime)
     std::string line, dateTimeBuffer;
     std::ifstream wstationLogFile("wstation.log", std::ios::in);
     Date date = *refDate;
+    Time time = *refTime; if (time.GetHour()) {}
     if (wstationLogFile.is_open())
     {
         std::tuple<std::streampos, std::streampos> range = getDateRangeFromLogFile(wstationLogFile, date);
@@ -689,7 +690,7 @@ std::streampos findBoundary(std::ifstream &file, const Date &refDate, bool direc
         if (tsDateInLine != "" && tsTimeInLine != "")
         {
             Date lineDate = ParseDate(tsDateInLine, dateTimeBuffer);
-            Time lineTime = ParseTime(tsTimeInLine);
+            Time lineTime = ParseTime(tsTimeInLine); if (lineTime.GetHour()) {}
 
             if (lineDate == refDate)
             {
